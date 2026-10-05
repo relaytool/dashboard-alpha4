@@ -12,6 +12,7 @@
   let batchForm=null;
   let tokenRequestPromise=null;
   const $=id=>document.getElementById(id);
+  const lowerText=value=>String(value??"").trim().toLowerCase();
 
   document.addEventListener("DOMContentLoaded",()=>{
     bindEvents();
@@ -21,7 +22,7 @@
       addButtonId:"add-client-entry",
       selfClient:SELF_CLIENT,
       getClients:()=>state.clients,
-      getAssets:()=>state.inventory.map(item=>item.asset),
+      getAssets:()=>state.inventory.map(item=>String(item?.asset??"").trim()).filter(Boolean),
       onChange:()=>updatePreview()
     });
     setDefaultTimestamp();
@@ -266,7 +267,7 @@
       state.transactions=parseTransactions(transactionRows,columns.idx);
       state.clients=parseClients(clientRows);
 
-      renderInputs();
+      batchForm?.refresh?.();
       renderAudit();
       setSyncStatus(`Synced at ${new Date().toLocaleTimeString()}`);
       return true;
@@ -308,7 +309,7 @@
     return {idx,length:header.length};
   }
 
-  function parseInventory(rows){if(!rows.length)return[];const header=rows[0].map(normalizeHeader);const assetIdx=findColumn(header,["asset","asset name","item","type"]);const balanceIdx=findColumn(header,["balance","current balance","stock","quantity"]);if(assetIdx<0)return[];return rows.slice(1).map((row,index)=>({rowNumber:index+2,asset:String(row[assetIdx]??"").trim(),balance:balanceIdx>=0?numericValue(row[balanceIdx]):0,assetColumn:assetIdx+1,balanceColumn:balanceIdx>=0?balanceIdx+1:2})).filter(x=>x.asset);}
+  function parseInventory(rows){if(!rows.length)return[];const header=rows[0].map(normalizeHeader);const assetIdx=findColumn(header,["asset","asset name","item","type"]);const balanceIdx=findColumn(header,["balance","current balance","stock","quantity"]);if(assetIdx<0)return[];return rows.slice(1).map((row,index)=>({rowNumber:index+2,asset:String(row?.[assetIdx]??"").trim(),balance:balanceIdx>=0?numericValue(row?.[balanceIdx]):0,assetColumn:assetIdx+1,balanceColumn:balanceIdx>=0?balanceIdx+1:2})).filter(x=>String(x?.asset??"").trim());}
   function parseTransactions(rows,idx){if(!rows.length)return[];return rows.slice(1).map(row=>({timestamp:idx.timestamp>=0?row[idx.timestamp]??"":"",client:idx.client>=0?row[idx.client]??"":"",movement:idx.movement>=0?row[idx.movement]??"":"",asset:idx.asset>=0?row[idx.asset]??"":"",quantity:idx.quantity>=0?numericValue(row[idx.quantity]):0,user:idx.user>=0?row[idx.user]??"":"",comment:idx.comment>=0?String(row[idx.comment]??"").trim():"",image:idx.image>=0?String(row[idx.image]??"").trim():""})).filter(x=>x.asset||x.client);}
   function parseClients(rows){if(!rows.length)return[];const header=rows[0].map(normalizeHeader);const idx=findColumn(header,["client","client name","name"]);if(idx<0)return rows.flat().map(x=>String(x).trim()).filter(Boolean).slice(1);return[...new Set(rows.slice(1).map(r=>String(r[idx]??"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));}
 
@@ -332,7 +333,7 @@
       const asset=String(item.asset||"Unknown asset").trim()||"Unknown asset";
       const movement=String(item.movement||"").trim().toUpperCase();
       const direction=movementLabel(movement)||movement||"Other";
-      const key=`${client.toLowerCase()}\u0000${asset.toLowerCase()}\u0000${movement}`;
+      const key=`${lowerText(client)}\u0000${lowerText(asset)}\u0000${movement}`;
       if(!groups.has(key))groups.set(key,{client,asset,movement,direction,quantity:0});
       groups.get(key).quantity+=Number(item.quantity)||0;
     });
@@ -360,8 +361,8 @@
     const sections=FM_TRANSACTION_DISPLAY.movementSections(group);
     const sectionMarkup=sections.map(section=>{
       const assets=section.items;
-      return `<section class="transaction-movement-section movement-${section.key.toLowerCase()}">
-        <div class="transaction-movement-heading"><span class="movement-tag ${section.key.toLowerCase()}">${escapeHtml(section.label)}</span><span>${formatNumber(section.totalQuantity)} total</span></div>
+      return `<section class="transaction-movement-section movement-${lowerText(section.key)}">
+        <div class="transaction-movement-heading"><span class="movement-tag ${lowerText(section.key)}">${escapeHtml(section.label)}</span><span>${formatNumber(section.totalQuantity)} total</span></div>
         <div class="transaction-asset-list">${assets.map(item=>`<div class="transaction-asset-pill"><span>${escapeHtml(item.asset)}</span><strong>${formatNumber(item.quantity)}</strong></div>`).join("")}</div>
       </section>`;
     }).join("");
@@ -402,7 +403,7 @@
     $("info-timestamp").textContent=formatTimestamp(group.timestamp)||"—";
     const summary=$("info-summary");
     if(summary){
-      summary.innerHTML=FM_TRANSACTION_DISPLAY.movementSections(group).map(section=>`<div class="transaction-detail-section"><div class="transaction-detail-section-head"><span class="movement-tag ${section.key.toLowerCase()}">${escapeHtml(section.label)}</span><strong>${formatNumber(section.totalQuantity)}</strong></div><div class="transaction-detail-assets">${section.items.map(item=>`<span>${escapeHtml(item.asset)} <strong>${formatNumber(item.quantity)}</strong></span>`).join("")}</div></div>`).join("");
+      summary.innerHTML=FM_TRANSACTION_DISPLAY.movementSections(group).map(section=>`<div class="transaction-detail-section"><div class="transaction-detail-section-head"><span class="movement-tag ${lowerText(section.key)}">${escapeHtml(section.label)}</span><strong>${formatNumber(section.totalQuantity)}</strong></div><div class="transaction-detail-assets">${section.items.map(item=>`<span>${escapeHtml(item.asset)} <strong>${formatNumber(item.quantity)}</strong></span>`).join("")}</div></div>`).join("");
     }
     const photoWrap=$("info-photo-wrap");const commentEl=$("info-comment");const emptyEl=$("info-empty");
     if(group.image){
@@ -427,15 +428,16 @@
     const data=readForm();
     const error=validateMovement(data);
     if(error){setMovementStatus(error,true);return;}
-    const balances=new Map(state.inventory.map(i=>[i.asset.toLowerCase(),i.balance]));
+    const balances=new Map(state.inventory.map(i=>[lowerText(i?.asset),i?.balance]).filter(([key])=>key));
     const prepared=[];
     for(const entry of data.entries){
       const movement=entry.movement;
       const client=movement==="DISCARD"?SELF_CLIENT:entry.client;
       for(const itemEntry of entry.items){
-        const item=state.inventory.find(x=>x.asset.toLowerCase()===itemEntry.asset.toLowerCase());
+        const wantedAssetKey=lowerText(itemEntry?.asset);
+        const item=state.inventory.find(x=>lowerText(x?.asset)===wantedAssetKey);
         if(!item){setMovementStatus(`Asset "${itemEntry.asset}" is not present in Inventory.`,true);return;}
-        const key=item.asset.toLowerCase();
+        const key=lowerText(item?.asset);
         const current=balances.get(key)??0;
         const next=movement==="RECEIVED"?current+itemEntry.quantity:current-itemEntry.quantity;
         if(next<0){setMovementStatus(`Cannot remove ${formatNumber(itemEntry.quantity)} ${item.asset}. Current balance is ${formatNumber(current)}.`,true);return;}
@@ -491,7 +493,7 @@
       const rows=data.prepared.map(item=>buildTransactionRow(idx,len,{timestamp,client:item.client,movement:item.movement,asset:item.asset,quantity:item.quantity,user,comment:data.comment||"",image:imageLink}));
       const transactionRange=`${quoteSheetName(CONFIG.TRANSACTIONS_SHEET_NAME)}!A:${columnLetter(len)}`;
       await sheetsPost(`/${encodeURIComponent(ledgerId)}/values/${encodeURIComponent(transactionRange)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,{values:rows});
-      const inventoryByKey=new Map(state.inventory.map(item=>[item.asset.toLowerCase(),item]));
+      const inventoryByKey=new Map(state.inventory.map(item=>[lowerText(item?.asset),item]).filter(([key])=>key));
       for(const [key,balance] of data.balances){
         const item=inventoryByKey.get(key);if(!item)continue;
         const balanceCell=columnLetter(item.balanceColumn)+item.rowNumber;
@@ -547,13 +549,13 @@
       const client=entry.movement==="DISCARD"?SELF_CLIENT:entry.client;
       if(!client)return"Select a client for every movement.";
       if(!entry.items.length)return`Add at least one asset type for ${client}.`;
-      const clientKey=client.toLowerCase();
+      const clientKey=lowerText(client);
       if(seenClients.has(clientKey))return`You have added ${client} more than once. Combine that client's movements into one card.`;
       seenClients.add(clientKey);
       const seenAssets=new Set();
       for(const item of entry.items){
         if(!item.asset||!Number.isInteger(item.quantity)||item.quantity<=0)return`Select an asset type and enter a whole quantity greater than zero for every row under ${client}.`;
-        const key=item.asset.toLowerCase();
+        const key=lowerText(item?.asset);
         if(seenAssets.has(key))return`You have selected ${item.asset} more than once for ${client}. Combine the quantities into one row.`;
         seenAssets.add(key);
       }
@@ -562,7 +564,7 @@
   }
   function updatePreview(){batchForm?.updatePreview?.("preview-text");}
   function setDefaultTimestamp(){const input=$("timestamp");if(!input)return;const now=new Date();input.value=`${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;}
-  function movementLabel(x){return x==="RECEIVED"?"Received":x==="SENT"?"Sent":x==="DISCARD"?"Discard":String(x||"");}function movementClass(x){return String(x||"").toLowerCase();}function formatTimestamp(x){if(!x)return"";const d=new Date(x);return Number.isNaN(d.getTime())?String(x):d.toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});}function formatNumber(x){return Number(x||0).toLocaleString("en-GB");}function numericValue(x){if(x===null||x===undefined||x==="")return 0;const n=Number(String(x).replace(/,/g,""));return Number.isFinite(n)?n:0;}function normalizeHeader(x){return String(x??"").trim().toLowerCase().replace(/\s+/g," ");}function findColumn(headers,names){for(const name of names){const idx=headers.indexOf(name);if(idx>=0)return idx;}return-1;}function quoteSheetName(x){return `'${String(x).replace(/'/g,"''")}'`;}function columnLetter(n){let r="";while(n>0){const rem=(n-1)%26;r=String.fromCharCode(65+rem)+r;n=Math.floor((n-1)/26);}return r;}function escapeDriveQuery(x){return String(x).replace(/\\/g,"\\\\").replace(/'/g,"\\'");}function escapeHtml(x){return String(x??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));}function escapeAttr(x){return escapeHtml(x);}function emptyRow(colspan,text){return `<tr><td colspan="${colspan}" class="empty">${escapeHtml(text)}</td></tr>`;}
+  function movementLabel(x){return x==="RECEIVED"?"Received":x==="SENT"?"Sent":x==="DISCARD"?"Discard":String(x||"");}function movementClass(x){return lowerText(x);}function formatTimestamp(x){if(!x)return"";const d=new Date(x);return Number.isNaN(d.getTime())?String(x):d.toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});}function formatNumber(x){return Number(x||0).toLocaleString("en-GB");}function numericValue(x){if(x===null||x===undefined||x==="")return 0;const n=Number(String(x).replace(/,/g,""));return Number.isFinite(n)?n:0;}function normalizeHeader(x){return String(x??"").trim().toLowerCase().replace(/\s+/g," ");}function findColumn(headers,names){for(const name of names){const idx=headers.indexOf(name);if(idx>=0)return idx;}return-1;}function quoteSheetName(x){return `'${String(x).replace(/'/g,"''")}'`;}function columnLetter(n){let r="";while(n>0){const rem=(n-1)%26;r=String.fromCharCode(65+rem)+r;n=Math.floor((n-1)/26);}return r;}function escapeDriveQuery(x){return String(x).replace(/\\/g,"\\\\").replace(/'/g,"\\'");}function escapeHtml(x){return String(x??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));}function escapeAttr(x){return escapeHtml(x);}function emptyRow(colspan,text){return `<tr><td colspan="${colspan}" class="empty">${escapeHtml(text)}</td></tr>`;}
   function authHeaders(){return{Authorization:`Bearer ${state.accessToken}`};}
   async function sheetsGet(path){return fetchJson(SHEETS_API+path,{headers:authHeaders()});}async function sheetsPost(path,body){return fetchJson(SHEETS_API+path,{method:"POST",headers:{...authHeaders(),"Content-Type":"application/json"},body:JSON.stringify(body)});}async function sheetsPut(path,body){return fetchJson(SHEETS_API+path,{method:"PUT",headers:{...authHeaders(),"Content-Type":"application/json"},body:JSON.stringify(body)});}
   async function fetchJson(url,options={}){
@@ -656,5 +658,7 @@
   document.addEventListener("visibilitychange",()=>{if(!document.hidden)refreshSavedSessionIfNeeded();});
 
   // Keep this helper available to any older dashboard/logger code that calls it globally.
+  // Backward-compatible bridge for any cached/older page code that still calls renderInputs().
+  window.renderInputs = () => batchForm?.refresh?.();
   window.formatTimestamp = formatTimestamp;
 })();

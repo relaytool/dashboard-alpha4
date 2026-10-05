@@ -1147,3 +1147,532 @@ img {
     scroll-behavior: auto !important;
   }
 }
+
+
+/* =========================================================
+   Mobile v2 — compact filters + cleaner movement logger
+   Loaded last so these rules intentionally win over older
+   responsive layers without changing existing JS hooks.
+   ========================================================= */
+
+@media (max-width: 760px) {
+  /* Compact native date controls. Keep the native picker, but remove the
+     excessive 46–48px vertical bulk used by the generic form rule. */
+  input[type="date"] {
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    padding: 8px 10px !important;
+    font-size: 15px !important;
+    line-height: 1.2 !important;
+    border-radius: 10px !important;
+  }
+
+  .dashboard-filter-grid input[type="date"],
+  .audit-filters input[type="date"],
+  .client-details-filters input[type="date"],
+  .investigate-filters input[type="date"],
+  .client-ledger-export-form input[type="date"] {
+    height: 42px !important;
+    min-height: 42px !important;
+  }
+
+  /* The logger should read as a simple mobile workflow, not a desktop form
+     squeezed into a phone. */
+  #logger {
+    display: block;
+    min-width: 0;
+  }
+
+  #logger .source-bar {
+    margin-bottom: 10px;
+    padding: 11px 12px !important;
+    border-radius: 13px !important;
+  }
+
+  #logger .source-bar .secondary {
+    width: auto;
+    min-width: 84px;
+    min-height: 40px;
+    align-self: center;
+  }
+
+  #logger .movement-card,
+  #logger .audit-card {
+    border-radius: 14px !important;
+  }
+
+  #logger .movement-card .section-heading {
+    padding: 15px 14px !important;
+    align-items: center;
+  }
+
+  #logger .movement-card .section-heading h2 {
+    font-size: 20px !important;
+  }
+
+  #logger .movement-card .section-heading p {
+    margin-top: 4px;
+    font-size: 11px;
+  }
+
+  #logger .today-pill {
+    flex: 0 0 auto;
+    padding: 7px 9px;
+    font-size: 10px;
+  }
+
+  #movement-form.movement-form-multi {
+    display: block;
+    padding: 12px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  #movement-form .client-movement-batch {
+    gap: 9px;
+  }
+
+  #movement-form .batch-header-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    padding: 0 1px 3px;
+  }
+
+  #movement-form .batch-header-row h3 {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  #movement-form .batch-header-row p {
+    display: none;
+  }
+
+  #movement-form .batch-header-row .secondary {
+    width: auto;
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  #movement-form .client-movement-entries {
+    gap: 9px;
+  }
+
+  #movement-form .movement-entry-card {
+    padding: 11px;
+    border-radius: 13px;
+    background: #fff;
+    border-color: #e2e7ee;
+    box-shadow: 0 3px 12px rgba(15, 23, 42, .045);
+  }
+
+  #movement-form .movement-entry-card.mode-received {
+    border-color: #bfdfca;
+    background: #fff;
+  }
+
+  #movement-form .movement-entry-card.mode-sent {
+    border-color: #c9d8ee;
+    background: #fff;
+  }
+
+  #movement-form .movement-entry-card.mode-discard {
+    border-color: #ecc8c1;
+    background: #fff;
+  }
+
+  #movement-form .movement-entry-head {
+    margin-bottom: 9px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #edf0f4;
+  }
+
+  #movement-form .movement-entry-head h3 {
+    font-size: 13px;
+  }
+
+  #movement-form .movement-entry-number {
+    font-size: 9px;
+    letter-spacing: .12em;
+  }
+
+  #movement-form .batch-remove-client {
+    min-height: 36px;
+    padding: 7px 9px;
+    font-size: 10px;
+  }
+
+  #movement-form .batch-entry-fields {
+    grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr) !important;
+    gap: 8px;
+  }
+
+  #movement-form .batch-entry-fields > label,
+  #movement-form .batch-asset-row label {
+    min-width: 0;
+    gap: 5px;
+    font-size: 9px;
+  }
+
+  #movement-form .batch-entry-fields select,
+  #movement-form .batch-asset-row select,
+  #movement-form .batch-asset-row input {
+    min-width: 0;
+    min-height: 44px;
+    height: 44px;
+    padding: 9px 10px;
+    border-radius: 9px;
+    font-size: 16px !important;
+  }
+
+  #movement-form .batch-client-help {
+    min-height: 0;
+    font-size: 9px;
+    line-height: 1.25;
+  }
+
+  #movement-form .batch-mode-strip {
+    min-height: 36px;
+    margin: 8px 0;
+    padding: 8px 10px;
+    border-width: 1px;
+    border-radius: 9px;
+    font-size: 9px;
+    letter-spacing: .045em;
+    box-shadow: none !important;
+  }
+
+  #movement-form .movement-mode-strip::before {
+    width: 7px;
+    height: 7px;
+    box-shadow: none !important;
+  }
+
+  #movement-form .batch-assets-section {
+    padding: 9px;
+    border-radius: 10px;
+    background: #f8fafc;
+    border-color: #e6ebf1;
+  }
+
+  #movement-form .batch-assets-head {
+    margin-bottom: 8px;
+  }
+
+  #movement-form .batch-assets-head h4 {
+    font-size: 12px;
+  }
+
+  #movement-form .batch-assets-head .eyebrow {
+    font-size: 8px;
+  }
+
+  #movement-form .batch-assets-head .secondary {
+    min-height: 36px;
+    padding: 7px 9px;
+    font-size: 10px;
+  }
+
+  #movement-form .batch-asset-rows {
+    gap: 7px;
+  }
+
+  /* Keep the row number as a compact gutter even on very small phones. */
+  #movement-form .batch-asset-row {
+    grid-template-columns: 24px minmax(0, 1fr) minmax(78px, .62fr) !important;
+    gap: 7px;
+    padding: 0;
+  }
+
+  #movement-form .batch-asset-number {
+    height: 44px;
+    border-radius: 8px;
+    background: #eef2f6;
+    font-size: 9px;
+  }
+
+  #movement-form .batch-remove-asset {
+    grid-column: 2 / -1;
+    width: 100%;
+    min-height: 34px;
+    height: 34px;
+    padding: 5px 8px;
+    border-radius: 8px;
+    font-size: 9px;
+  }
+
+  #movement-form .movement-preview {
+    margin-top: 10px;
+    padding: 10px 11px;
+    border-radius: 10px;
+  }
+
+  #movement-form .movement-preview strong {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  #movement-form .submit-button {
+    min-height: 48px;
+    margin-top: 10px;
+    border-radius: 11px;
+    font-size: 13px;
+  }
+
+  #movement-form .attachment-section {
+    margin-top: 10px;
+    padding: 10px !important;
+    gap: 10px;
+    border-radius: 11px;
+  }
+
+  #movement-form .photo-input-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+  }
+
+  #movement-form .photo-input-row input[type="file"] {
+    min-height: 42px;
+    height: 42px;
+    padding: 8px;
+    font-size: 13px !important;
+    border-radius: 9px;
+  }
+
+  #movement-form .photo-input-row button {
+    min-height: 40px;
+  }
+
+  #movement-form .comment-field textarea {
+    min-height: 82px;
+    font-size: 16px !important;
+  }
+
+  /* Compact audit filters: Client gets the full row; Day + Asset sit side-by-side. */
+  #logger .audit-filters {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    gap: 8px;
+    padding: 10px 12px 12px !important;
+  }
+
+  #logger .audit-filters label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  #logger .audit-filters label {
+    min-width: 0;
+    gap: 5px;
+    font-size: 9px;
+  }
+
+  #logger .audit-filters select,
+  #logger .audit-filters input:not([type="date"]) {
+    min-height: 42px;
+    height: 42px;
+    padding: 8px 9px;
+    font-size: 15px !important;
+  }
+
+  #logger .audit-filters input[type="date"] {
+    min-height: 42px !important;
+    height: 42px !important;
+    font-size: 14px !important;
+  }
+
+  #logger #clear-filters {
+    grid-column: 1 / -1;
+    min-height: 40px;
+    height: 40px;
+    font-size: 11px;
+  }
+
+  #logger .transaction-card-list {
+    padding-inline: 10px !important;
+    padding-bottom: 11px !important;
+  }
+}
+
+@media (max-width: 390px) {
+  #movement-form .batch-entry-fields {
+    grid-template-columns: 1fr !important;
+  }
+
+  #movement-form .batch-asset-row {
+    grid-template-columns: 22px minmax(0, 1fr) minmax(72px, .6fr) !important;
+  }
+
+  #movement-form .batch-remove-asset {
+    grid-column: 2 / -1;
+  }
+
+  #logger .audit-filters {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+
+/* Final mobile stability pass for generated asset rows + audit filters. */
+@media (max-width: 760px) {
+  #movement-form .batch-asset-row {
+    grid-template-columns: 24px minmax(0, 1fr) minmax(78px, .62fr) !important;
+    grid-template-rows: auto auto;
+    align-items: center;
+  }
+
+  #movement-form .batch-asset-number {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+  }
+
+  #movement-form .batch-asset-row > label:nth-of-type(1) {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+  }
+
+  #movement-form .batch-asset-row > label:nth-of-type(2) {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+  }
+
+  #movement-form .batch-remove-asset {
+    grid-column: 2 / -1 !important;
+    grid-row: 2 !important;
+  }
+
+  /* At phone widths, a single clean filter column is easier to scan and
+     eliminates any possibility of native date controls squeezing a grid. */
+  #logger .audit-filters {
+    grid-template-columns: 1fr !important;
+  }
+
+  #logger .audit-filters label:first-child,
+  #logger #clear-filters {
+    grid-column: auto !important;
+  }
+}
+
+@media (max-width: 390px) {
+  #movement-form .batch-asset-row {
+    grid-template-columns: 22px minmax(0, 1fr) minmax(72px, .60fr) !important;
+  }
+}
+
+/* Mobile asset rows: use a simple flex layout so the controls remain stable
+   on Safari/Chrome at 320px and do not inherit the desktop grid geometry. */
+@media (max-width: 760px) {
+  #movement-form .batch-asset-row {
+    display: flex !important;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 7px;
+    padding: 0;
+  }
+
+  #movement-form .batch-asset-number {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 44px;
+    order: 1;
+    grid-area: auto !important;
+  }
+
+  #movement-form .batch-asset-row > label:nth-of-type(1) {
+    flex: 1 1 0;
+    min-width: 0;
+    order: 2;
+    grid-area: auto !important;
+  }
+
+  #movement-form .batch-asset-row > label:nth-of-type(2) {
+    flex: 0 0 78px;
+    min-width: 72px;
+    order: 3;
+    grid-area: auto !important;
+  }
+
+  #movement-form .batch-asset-row > label {
+    display: flex !important;
+    flex-direction: column !important;
+    min-width: 0;
+    gap: 5px;
+  }
+
+  #movement-form .batch-asset-row > label > span {
+    display: block;
+    min-height: 11px;
+  }
+
+  #movement-form .batch-remove-asset {
+    flex: 1 1 100%;
+    width: auto;
+    min-width: 0;
+    margin-left: 31px;
+    order: 4;
+    grid-area: auto !important;
+  }
+}
+
+@media (max-width: 390px) {
+  #movement-form .batch-header-row {
+    grid-template-columns: 1fr;
+  }
+
+  #movement-form .batch-header-row .secondary {
+    width: 100%;
+  }
+
+  #movement-form .batch-asset-number {
+    flex-basis: 22px;
+    width: 22px;
+  }
+
+  #movement-form .batch-asset-row > label:nth-of-type(2) {
+    flex-basis: 72px;
+    min-width: 68px;
+  }
+
+  #movement-form .batch-remove-asset {
+    margin-left: 29px;
+  }
+}
+
+/* Keep the primary batch controls vertically stacked on all phones.
+   This avoids cramped two-column headers on 320–390px screens. */
+@media (max-width: 760px) {
+  #movement-form .batch-header-row {
+    grid-template-columns: 1fr;
+  }
+
+  #movement-form .batch-header-row .secondary {
+    width: 100%;
+  }
+
+  #movement-form .batch-entry-fields {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* FINAL MOBILE CLIENT TILE WIDTH FIX */
+@media (max-width: 760px) {
+  .client-cards {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+    padding-inline: 12px !important;
+  }
+  .client-card {
+    width: 100%;
+    min-width: 0;
+  }
+  .client-card-top,
+  .client-card-stats,
+  .client-card-assets,
+  .client-card-footer {
+    min-width: 0;
+  }
+}

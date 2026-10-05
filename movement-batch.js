@@ -278,7 +278,7 @@
         }
         const seen = new Set();
         for (const item of entry.items) {
-          const key = item.asset.toLowerCase();
+          const key = String(item?.asset ?? "").trim().toLowerCase();
           if (seen.has(key)) return `Client ${index + 1} has ${item.asset} more than once. Combine the quantities.`;
           seen.add(key);
         }
