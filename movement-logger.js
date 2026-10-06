@@ -360,19 +360,19 @@
   function renderTransactionCard(group,index){
     const sections=FM_TRANSACTION_DISPLAY.movementSections(group);
     const sectionMarkup=sections.map(section=>{
-      const assets=section.items;
-      return `<section class="transaction-movement-section movement-${lowerText(section.key)}">
-        <div class="transaction-movement-heading"><span class="movement-tag ${lowerText(section.key)}">${escapeHtml(section.label)}</span><span>${formatNumber(section.totalQuantity)} total</span></div>
-        <div class="transaction-asset-list">${assets.map(item=>`<div class="transaction-asset-pill"><span>${escapeHtml(item.asset)}</span><strong>${formatNumber(item.quantity)}</strong></div>`).join("")}</div>
+      const cls=lowerText(section.movement);
+      return `<section class="transaction-movement-section movement-${cls}">
+        <div class="transaction-movement-heading"><span class="movement-tag ${cls}">${escapeHtml(section.label)}</span><span>${formatNumber(section.totalQuantity)} total</span></div>
+        <div class="transaction-asset-list">${section.items.map(item=>`<div class="transaction-asset-pill"><span>${escapeHtml(item.asset)}</span><strong>${formatNumber(item.quantity)}</strong></div>`).join("")}</div>
       </section>`;
     }).join("");
-    const movementLabels=sections.map(s=>s.label).join(" + ");
+    const labels=sections.map(section=>section.label).join(" + ");
     return `<article class="transaction-card ${FM_TRANSACTION_DISPLAY.cardClass(group)}">
       <div class="transaction-card-accent" aria-hidden="true"></div>
       <div class="transaction-card-top">
         <div class="transaction-card-icon-wrap"><img class="transaction-card-icon" src="truck-icon.png" alt="" aria-hidden="true"></div>
-        <div class="transaction-card-heading"><div class="transaction-card-client">${escapeHtml(group.client||"Unknown client")}</div><div class="transaction-card-meta"><span>${escapeHtml(formatTimestamp(group.timestamp))}</span><span>•</span><span>${escapeHtml(movementLabels)}</span></div></div>
-        <button type="button" class="secondary info-button transaction-card-view" data-info-index="${index}">View details</button>
+        <div class="transaction-card-heading"><div class="transaction-card-client">${escapeHtml(group.client||"Unknown client")}</div><div class="transaction-card-meta"><span>${escapeHtml(formatTimestamp(group.timestamp))}</span><span>•</span><span>${escapeHtml(labels||"Movement")}</span></div></div>
+        <button type="button" class="secondary info-button transaction-card-view" data-info-index="${index}" aria-label="View details for ${escapeAttr(group.client||"movement")}">View details</button>
       </div>
       <div class="transaction-card-body">${sectionMarkup}</div>
       <div class="transaction-card-footer"><span>${formatNumber(group.totalLines)} ledger line${group.totalLines===1?"":"s"}${group.image?" · attachment":""}</span><strong>${formatNumber(group.totalQuantity)} total units</strong></div>
@@ -396,14 +396,12 @@
   // ---- More info modal ----
   async function openInfoModal(index){
     const group=state.auditVisibleRows[index];if(!group)return;
-    $("info-client").textContent=group.client||"—";
-    $("info-movement").textContent=FM_TRANSACTION_DISPLAY.movementLabels(group).join(" + ")||"—";
-    $("info-asset").textContent=FM_TRANSACTION_DISPLAY.assetSummary(group)||"Multiple asset types";
-    $("info-quantity").textContent=formatNumber(group.totalQuantity);
-    $("info-timestamp").textContent=formatTimestamp(group.timestamp)||"—";
+    const title=$("info-modal-title");
+    if(title)title.textContent=`${group.client||"Movement"} · Details`;
     const summary=$("info-summary");
     if(summary){
-      summary.innerHTML=FM_TRANSACTION_DISPLAY.movementSections(group).map(section=>`<div class="transaction-detail-section"><div class="transaction-detail-section-head"><span class="movement-tag ${lowerText(section.key)}">${escapeHtml(section.label)}</span><strong>${formatNumber(section.totalQuantity)}</strong></div><div class="transaction-detail-assets">${section.items.map(item=>`<span>${escapeHtml(item.asset)} <strong>${formatNumber(item.quantity)}</strong></span>`).join("")}</div></div>`).join("");
+      const sections=FM_TRANSACTION_DISPLAY.movementSections(group);
+      summary.innerHTML=`<div class="transaction-detail-note"><strong>${escapeHtml(group.client||"Unknown client")}</strong><span> · ${escapeHtml(formatTimestamp(group.timestamp)||"Unknown time")}</span><span> · ${escapeHtml(FM_TRANSACTION_DISPLAY.movementLabels(group).join(" + ")||"Movement")}</span></div>${sections.map(section=>`<div class="transaction-detail-section"><div class="transaction-detail-section-head"><span class="movement-tag ${lowerText(section.movement)}">${escapeHtml(section.label)}</span><strong>${formatNumber(section.totalQuantity)}</strong></div><div class="transaction-detail-assets">${section.items.map(item=>`<span>${escapeHtml(item.asset)} <strong>${formatNumber(item.quantity)}</strong></span>`).join("")}</div></div>`).join("")}`;
     }
     const photoWrap=$("info-photo-wrap");const commentEl=$("info-comment");const emptyEl=$("info-empty");
     if(group.image){
@@ -589,8 +587,10 @@
   function saveSession(){if(!state.idTokenPayload)return;localStorage.setItem(SESSION_KEY,JSON.stringify({name:state.idTokenPayload.name||"Google user",email:state.idTokenPayload.email||"",picture:state.idTokenPayload.picture||"",sub:state.idTokenPayload.sub||""}));}
   function readSavedSession(){try{return JSON.parse(localStorage.getItem(SESSION_KEY)||"null");}catch(_){return null;}}
   function setUserProfile(profile){
-    $("user-name").textContent=profile?.name||"Google user";
-    $("user-email").textContent=profile?.email||"";
+    const rawName=String(profile?.given_name||profile?.name||"Google user").trim();
+    const firstName=(rawName.split(/\s+/)[0]||"there").replace(/[^\p{L}\p{M}'-]/gu, "");
+    $("user-name").textContent=`Hi, ${firstName||"there"} 👋`;
+    $("user-email").textContent="";
     if(profile?.picture){
       $("user-photo").src=profile.picture;
       $("user-photo").classList.remove("hidden");

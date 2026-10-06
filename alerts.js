@@ -252,7 +252,7 @@
           <div class="transaction-card-heading"><div class="transaction-card-client">${escapeHtml(group.client||"Unknown client")}</div><div class="transaction-card-meta"><span>${escapeHtml(formatAlertTime(group.timestamp))}</span><span>•</span><span>${escapeHtml(FM_TRANSACTION_DISPLAY.movementLabels(group).join(" + "))}</span></div></div>
           <button type="button" class="secondary info-button transaction-card-view" data-investigate-info-index="${index}">View details</button>
         </div>
-        <div class="transaction-card-body">${sections.map(section=>`<section class="transaction-movement-section movement-${section.key.toLowerCase()}"><div class="transaction-movement-heading"><span class="movement-tag ${section.key.toLowerCase()}">${escapeHtml(section.label)}</span><span>${FM_ROUTINE_ALERTS.formatQty(section.totalQuantity)} total</span></div><div class="transaction-asset-list">${section.items.map(item=>`<div class="transaction-asset-pill"><span>${escapeHtml(item.asset)}</span><strong>${FM_ROUTINE_ALERTS.formatQty(item.quantity)}</strong></div>`).join("")}</div></section>`).join("")}</div>
+        <div class="transaction-card-body">${sections.map(section=>`<section class="transaction-movement-section movement-${String(section.movement ?? section.key ?? "other").toLowerCase()}"><div class="transaction-movement-heading"><span class="movement-tag ${String(section.movement ?? section.key ?? "other").toLowerCase()}">${escapeHtml(section.label)}</span><span>${FM_ROUTINE_ALERTS.formatQty(section.totalQuantity)} total</span></div><div class="transaction-asset-list">${section.items.map(item=>`<div class="transaction-asset-pill"><span>${escapeHtml(item.asset)}</span><strong>${FM_ROUTINE_ALERTS.formatQty(item.quantity)}</strong></div>`).join("")}</div></section>`).join("")}</div>
         <div class="transaction-card-footer"><span>${FM_TRANSACTION_DISPLAY.formatLineCount(group)}${group.image?" · attachment":""}</span><strong>${FM_ROUTINE_ALERTS.formatQty(group.totalQuantity)} total units</strong></div>
       </article>`;
     }).join(""):`<div class="transaction-empty">No matching asset movements.</div>`;
@@ -262,13 +262,13 @@
 
   async function openAlertInfo(index){
     const group=state.investigationRows[index];if(!group)return;
-    $("alert-info-client").textContent=group.client||"—";
-    $("alert-info-movement").textContent=FM_TRANSACTION_DISPLAY.movementLabels(group).join(" + ")||"—";
-    $("alert-info-asset").textContent=FM_TRANSACTION_DISPLAY.assetSummary(group)||"Multiple asset types";
-    $("alert-info-quantity").textContent=FM_ROUTINE_ALERTS.formatQty(group.totalQuantity);
-    $("alert-info-time").textContent=formatAlertTime(group.timestamp)||"—";
+    const title=$("alert-info-title");
+    if(title)title.textContent=`${group.client||"Movement"} · Details`;
     const summary=$("alert-info-summary");
-    if(summary)summary.innerHTML=FM_TRANSACTION_DISPLAY.movementSections(group).map(section=>`<div class="transaction-detail-section"><div class="transaction-detail-section-head"><span class="movement-tag ${section.key.toLowerCase()}">${escapeHtml(section.label)}</span><strong>${FM_ROUTINE_ALERTS.formatQty(section.totalQuantity)}</strong></div><div class="transaction-detail-assets">${section.items.map(item=>`<span>${escapeHtml(item.asset)} <strong>${FM_ROUTINE_ALERTS.formatQty(item.quantity)}</strong></span>`).join("")}</div></div>`).join("");
+    if(summary){
+      const sections=FM_TRANSACTION_DISPLAY.movementSections(group);
+      summary.innerHTML=`<div class="transaction-detail-note"><strong>${escapeHtml(group.client||"Unknown client")}</strong><span> · ${escapeHtml(formatAlertTime(group.timestamp)||"Unknown time")}</span><span> · ${escapeHtml(FM_TRANSACTION_DISPLAY.movementLabels(group).join(" + ")||"Movement")}</span><span> · ${FM_ROUTINE_ALERTS.formatQty(group.totalQuantity)} total units</span></div>${sections.map(section=>`<div class="transaction-detail-section"><div class="transaction-detail-section-head"><span class="movement-tag ${String(section.movement ?? "OTHER").toLowerCase()}">${escapeHtml(section.label)}</span><strong>${FM_ROUTINE_ALERTS.formatQty(section.totalQuantity)}</strong></div><div class="transaction-detail-assets">${section.items.map(item=>`<span>${escapeHtml(item.asset)} <strong>${FM_ROUTINE_ALERTS.formatQty(item.quantity)}</strong></span>`).join("")}</div></div>`).join("")}`;
+    }
     const wrap=$("alert-info-photo-wrap"),img=$("alert-info-photo"),status=$("alert-info-photo-status"),comment=$("alert-info-comment"),empty=$("alert-info-empty");
     FM_MEDIA?.revokeObjectUrl?.(img);
     wrap.classList.toggle("hidden",!group.image);status.classList.toggle("hidden",!group.image);status.textContent="Loading photo...";
@@ -300,7 +300,7 @@
   function columnLetter(n){let r="";while(n>0){const rem=(n-1)%26;r=String.fromCharCode(65+rem)+r;n=Math.floor((n-1)/26)}return r}
   function normalizeHeader(x){return String(x??"").trim().toLowerCase().replace(/\s+/g," ")}
   function decodeJwtPayload(token){const part=token.split(".")[1],n=part.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-part.length%4)%4);return JSON.parse(decodeURIComponent(Array.from(atob(n)).map(c=>`%${c.charCodeAt(0).toString(16).padStart(2,"0")}`).join("")))}
-  function setUserProfile(p){$("user-name").textContent=p?.name||"Google user";$("user-email").textContent=p?.email||"";if(p?.picture){$("user-photo").src=p.picture;$("user-photo").classList.remove("hidden")}}
+  function setUserProfile(p){const rawName=String(p?.given_name||p?.name||"Google user").trim();const firstName=(rawName.split(/\s+/)[0]||"there").replace(/[^\p{L}\p{M}'-]/gu, "");$("user-name").textContent=`Hi, ${firstName||"there"} 👋`;$("user-email").textContent="";if(p?.picture){$("user-photo").src=p.picture;$("user-photo").classList.remove("hidden")}}
   function saveSession(){if(state.idTokenPayload)localStorage.setItem(SESSION_KEY,JSON.stringify({name:state.idTokenPayload.name||"Google user",email:state.idTokenPayload.email||"",picture:state.idTokenPayload.picture||"",sub:state.idTokenPayload.sub||""}))}
   function readSession(){try{return JSON.parse(localStorage.getItem(SESSION_KEY)||"null")}catch{return null}}
   function hideLogin(){$("login-card").classList.add("hidden");$("alerts-page").classList.remove("hidden");$("google-signin-button").classList.add("hidden");$("grant-access").classList.add("hidden");$("sign-out").classList.remove("hidden")}

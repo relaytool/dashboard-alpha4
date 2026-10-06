@@ -31,7 +31,7 @@
     const groups = new Map();
     (transactions || []).forEach((item, index) => {
       const client = String(item?.client || "Unknown client").trim() || "Unknown client";
-      const key = `${client.toLowerCase()}\u0000${timeKey(item?.timestamp)}`;
+      const key = `${String(client).toLowerCase()}\u0000${timeKey(item?.timestamp)}`;
       if (!groups.has(key)) {
         groups.set(key, {
           key,
@@ -75,12 +75,20 @@
   function movementSections(group, options = {}) {
     const includeEmpty = Boolean(options.includeEmpty);
     const sections = [];
-    ORDER.forEach(movement => {
-      const items = group?.movements?.[movement] || [];
+    const addSection = movement => {
+      const items = Array.isArray(group?.movements?.[movement]) ? group.movements[movement] : [];
       if (!items.length && !includeEmpty) return;
-      sections.push({ movement, items });
-    });
-    if ((group?.movements?.OTHER || []).length) sections.push({ movement:"OTHER", items:group.movements.OTHER });
+      const totalQuantity = items.reduce((sum, item) => sum + (Number(item?.quantity) || 0), 0);
+      sections.push({
+        movement,
+        key: movement,
+        label: movementLabel(movement),
+        items,
+        totalQuantity
+      });
+    };
+    ORDER.forEach(addSection);
+    addSection("OTHER");
     return sections;
   }
 
@@ -95,7 +103,7 @@
 
   function cardClass(group) {
     const movements = movementSections(group).map(section => section.movement);
-    if (movements.length === 1) return `movement-card-${movements[0].toLowerCase()}`;
+    if (movements.length === 1) return `movement-card-${String(movements[0] ?? "other").toLowerCase()}`;
     if (movements.length > 1) return "movement-card-mixed";
     return "movement-card-other";
   }

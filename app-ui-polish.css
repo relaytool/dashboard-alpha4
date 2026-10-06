@@ -1676,3 +1676,57 @@ img {
     min-width: 0;
   }
 }
+
+/* Project-wide signed-in greeting. Keep account chrome compact; the full email is not shown beside Sign out. */
+.account-area .user-email {
+  display: none !important;
+}
+.account-area .user-name {
+  font-size: 13px !important;
+  line-height: 1.25 !important;
+  font-weight: 800 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 760px) {
+  .account-area .user-name {
+    font-size: 14px !important;
+  }
+}
+
+/* Logger audit detail actions need a reliable tap target without widening the card. */
+#logger .transaction-card-view {
+  flex: 0 0 auto;
+  min-height: 40px;
+  white-space: nowrap;
+}
+#logger .transaction-detail-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: baseline;
+  margin-bottom: 12px;
+  color: var(--text, #344054);
+}
+@media (max-width: 760px) {
+  #logger .transaction-card-top {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  #logger .transaction-card-heading {
+    min-width: 0;
+    flex: 1 1 180px;
+  }
+  #logger .transaction-card-view {
+    width: 100%;
+    margin-top: 4px;
+  }
+  #logger .info-card {
+    width: min(100% - 18px, 560px) !important;
+    max-height: min(88vh, 720px);
+    padding: 18px !important;
+    border-radius: 18px !important;
+  }
+}

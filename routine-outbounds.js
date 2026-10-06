@@ -253,7 +253,7 @@
   function authHeaders(){return {Authorization:`Bearer ${state.accessToken}`};}
   function quoteSheetName(name){return `'${String(name).replace(/'/g,"''")}'`;}
   function decodeJwtPayload(token){const part=token.split(".")[1]; const normalized=part.replace(/-/g,"+").replace(/_/g,"/")+"=".repeat((4-part.length%4)%4); return JSON.parse(decodeURIComponent(Array.from(atob(normalized)).map(c=>`%${c.charCodeAt(0).toString(16).padStart(2,"0")}`).join("")));}
-  function setUserProfile(p){$("user-name").textContent=p?.name||"Google user";$("user-email").textContent=p?.email||"";if(p?.picture){$("user-photo").src=p.picture;$("user-photo").classList.remove("hidden");}}
+  function setUserProfile(p){const rawName=String(p?.given_name||p?.name||"Google user").trim();const firstName=(rawName.split(/\s+/)[0]||"there").replace(/[^\p{L}\p{M}'-]/gu, "");$("user-name").textContent=`Hi, ${firstName||"there"} 👋`;$("user-email").textContent="";if(p?.picture){$("user-photo").src=p.picture;$("user-photo").classList.remove("hidden");}}
   function saveSession(){if(state.idTokenPayload)localStorage.setItem(SESSION_KEY,JSON.stringify({name:state.idTokenPayload.name||"Google user",email:state.idTokenPayload.email||"",picture:state.idTokenPayload.picture||"",sub:state.idTokenPayload.sub||""}));}
   function readSession(){try{return JSON.parse(localStorage.getItem(SESSION_KEY)||"null")}catch{return null}}
   function hideLogin(){$("login-card").classList.add("hidden");$("routine-page").classList.remove("hidden");$("google-signin-button").classList.add("hidden");$("grant-access").classList.add("hidden");$("sign-out").classList.remove("hidden");}

@@ -4329,7 +4329,7 @@ function bindQuickMenu() {
 
     function saveSession() { if (state.idTokenPayload) localStorage.setItem(SESSION_KEY, JSON.stringify({ name: state.idTokenPayload.name || "Google user", email: state.idTokenPayload.email || "", picture: state.idTokenPayload.picture || "", sub: state.idTokenPayload.sub || "" })); }
     function readSavedSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (_) { return null; } }
-    function setUserProfile(profile) { $("user-name").textContent = profile?.name || "Google user"; $("user-email").textContent = profile?.email || ""; if (profile?.picture) { $("user-photo").src = profile.picture; $("user-photo").classList.remove("hidden"); } }
+    function setUserProfile(profile) { const rawName = String(profile?.given_name || profile?.name || "Google user").trim(); const firstName = (rawName.split(/\s+/)[0] || "there").replace(/[^\p{L}\p{M}'-]/gu, ""); $("user-name").textContent = `Hi, ${firstName || "there"} 👋`; $("user-email").textContent = ""; if (profile?.picture) { $("user-photo").src = profile.picture; $("user-photo").classList.remove("hidden"); } }
     function hideLogin() { $("google-signin-button").classList.add("hidden"); $("grant-access").classList.add("hidden"); $("sign-out").classList.remove("hidden"); $("login-card").classList.add("hidden"); $("dashboard").classList.remove("hidden"); }
 
     function showReconnectUI(message = "Google access expired. Allow Sheets & Drive access to continue.") {
