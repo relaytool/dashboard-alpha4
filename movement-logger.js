@@ -264,19 +264,13 @@
       state.transactionIdx=columns.idx;
       state.transactionHeaderLength=columns.length;
       state.inventory=parseInventory(inventoryRows);
-      if(window.FM_INVENTORY_LEDGER?.ensureChangeLog){
-        const ledgerIntegrity=await FM_INVENTORY_LEDGER.ensureChangeLog({
-          spreadsheetId:ledgerId,
-          accessToken:state.accessToken,
-          inventoryItems:state.inventory,
-          user:state.idTokenPayload?.email||readSavedSession()?.email||"System"
-        });
-
-        // If the change log or inventory schema was repaired, refresh the live
-        // inventory so the audit trail and movement form cannot keep a stale
-        // 0/wrong balance snapshot from before the repair.
-        if(ledgerIntegrity?.repaired||ledgerIntegrity?.inventoryChanged){
-          state.inventory=parseInventory(await getValues(ledgerId,CONFIG.INVENTORY_SHEET_NAME));
+      // The old Inventory Change Log is retired. Remove that legacy sheet once
+      // if it still exists; all new audit information lives on Asset Transactions.
+      if(window.FM_SHEET_WRITER?.removeLegacyChangeLog){
+        try{
+          await FM_SHEET_WRITER.removeLegacyChangeLog({spreadsheetId:ledgerId,accessToken:state.accessToken});
+        }catch(legacyError){
+          console.warn("Legacy inventory log could not be removed yet:",legacyError);
         }
       }
       state.transactions=parseTransactions(transactionRows,columns.idx);
@@ -293,7 +287,7 @@
     }
   }
 
-  async function createSheets(names){const ledgerId=CONFIG.INVENTORY_LEDGER_SHEET_ID;await sheetsPost(`/${encodeURIComponent(ledgerId)}:batchUpdate`,{requests:names.map(title=>({addSheet:{properties:{title}}}))});if(names.includes(CONFIG.INVENTORY_SHEET_NAME))await updateValues(ledgerId,CONFIG.INVENTORY_SHEET_NAME,[["Asset","Balance"]]);if(names.includes(CONFIG.TRANSACTIONS_SHEET_NAME))await updateValues(ledgerId,CONFIG.TRANSACTIONS_SHEET_NAME,[["Timestamp","Client","Movement","Asset","Quantity","User","Comment","Image Link"]]);if(names.includes(CONFIG.ROUTINE_SHEET_NAME))await updateValues(ledgerId,CONFIG.ROUTINE_SHEET_NAME,[["Routine ID","Active","Frequency","Weekday","Direction","Client","Asset","Quantity","Destination","Planned Time","Notes","Created By","Created At"]]);if(names.includes(CONFIG.ALERTS_SHEET_NAME))await updateValues(ledgerId,CONFIG.ALERTS_SHEET_NAME,[["Alert Key","Created At","Alert Type","Status","Client","Asset","Required Qty","Available Qty","Shortfall","Destination","Message","Attended At","Attended By","Resolution Comment","Routine Key"]]);}
+  async function createSheets(names){const ledgerId=CONFIG.INVENTORY_LEDGER_SHEET_ID;await sheetsPost(`/${encodeURIComponent(ledgerId)}:batchUpdate`,{requests:names.map(title=>({addSheet:{properties:{title}}}))});if(names.includes(CONFIG.INVENTORY_SHEET_NAME))await updateValues(ledgerId,CONFIG.INVENTORY_SHEET_NAME,[["Asset","Balance"]]);if(names.includes(CONFIG.TRANSACTIONS_SHEET_NAME))await updateValues(ledgerId,CONFIG.TRANSACTIONS_SHEET_NAME,[["Timestamp","Client","Movement","Asset","Quantity","User","Comment","Image Link","Inventory Balance"]]);if(names.includes(CONFIG.ROUTINE_SHEET_NAME))await updateValues(ledgerId,CONFIG.ROUTINE_SHEET_NAME,[["Routine ID","Active","Frequency","Weekday","Direction","Client","Asset","Quantity","Destination","Planned Time","Notes","Created By","Created At"]]);if(names.includes(CONFIG.ALERTS_SHEET_NAME))await updateValues(ledgerId,CONFIG.ALERTS_SHEET_NAME,[["Alert Key","Created At","Alert Type","Status","Client","Asset","Required Qty","Available Qty","Shortfall","Destination","Message","Attended At","Attended By","Resolution Comment","Routine Key"]]);}
   async function getValues(spreadsheetId,sheetName){const data=await sheetsGet(`/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(quoteSheetName(sheetName)+"!A:AE")}`);return data.values||[];}
   async function updateValues(spreadsheetId,sheetName,rows){const range=`${quoteSheetName(sheetName)}!A1`;return sheetsPut(`/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,{range,majorDimension:"ROWS",values:rows});}
 
@@ -306,6 +300,7 @@
     let changed=false;
     if(!norm.some(h=>["comment","comments","notes"].includes(h))){header.push("Comment");norm.push("comment");changed=true;}
     if(!norm.some(h=>["image link","image","photo","picture","photo link","attachment","drive link"].includes(h))){header.push("Image Link");norm.push("image link");changed=true;}
+    if(!norm.some(h=>["inventory balance","warehouse balance","balance after movement"].includes(h))){header.push("Inventory Balance");norm.push("inventory balance");changed=true;}
     if(changed){
       const range=`${quoteSheetName(CONFIG.TRANSACTIONS_SHEET_NAME)}!A1`;
       await sheetsPut(`/${encodeURIComponent(ledgerId)}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,{range,majorDimension:"ROWS",values:[header]});
@@ -319,13 +314,14 @@
       quantity:findColumn(norm,["quantity","qty"]),
       user:findColumn(norm,["user","entered by","email"]),
       comment:findColumn(norm,["comment","comments","notes"]),
-      image:findColumn(norm,["image link","image","photo","picture","photo link","attachment","drive link"])
+      image:findColumn(norm,["image link","image","photo","picture","photo link","attachment","drive link"]),
+      inventoryBalance:findColumn(norm,["inventory balance","warehouse balance","balance after movement"])
     };
     return {idx,length:header.length};
   }
 
   function parseInventory(rows){if(!rows.length)return[];const header=rows[0].map(normalizeHeader);const assetIdx=findColumn(header,["asset","asset name","item","type"]);const balanceIdx=findColumn(header,["balance","current balance","stock","quantity"]);if(assetIdx<0)return[];return rows.slice(1).map((row,index)=>({rowNumber:index+2,asset:String(row?.[assetIdx]??"").trim(),balance:balanceIdx>=0?numericValue(row?.[balanceIdx]):0,assetColumn:assetIdx+1,balanceColumn:balanceIdx>=0?balanceIdx+1:2})).filter(x=>String(x?.asset??"").trim());}
-  function parseTransactions(rows,idx){if(!rows.length)return[];return rows.slice(1).map(row=>({timestamp:idx.timestamp>=0?row[idx.timestamp]??"":"",client:idx.client>=0?row[idx.client]??"":"",movement:idx.movement>=0?row[idx.movement]??"":"",asset:idx.asset>=0?row[idx.asset]??"":"",quantity:idx.quantity>=0?numericValue(row[idx.quantity]):0,user:idx.user>=0?row[idx.user]??"":"",comment:idx.comment>=0?String(row[idx.comment]??"").trim():"",image:idx.image>=0?String(row[idx.image]??"").trim():""})).filter(x=>x.asset||x.client);}
+  function parseTransactions(rows,idx){if(!rows.length)return[];return rows.slice(1).map(row=>({timestamp:idx.timestamp>=0?row[idx.timestamp]??"":"",client:idx.client>=0?row[idx.client]??"":"",movement:idx.movement>=0?row[idx.movement]??"":"",asset:idx.asset>=0?row[idx.asset]??"":"",quantity:idx.quantity>=0?numericValue(row[idx.quantity]):0,user:idx.user>=0?row[idx.user]??"":"",comment:idx.comment>=0?String(row[idx.comment]??"").trim():"",image:idx.image>=0?String(row[idx.image]??"").trim():"",inventoryBalance:idx.inventoryBalance>=0?numericValue(row[idx.inventoryBalance]):null})).filter(x=>x.asset||x.client);}
   function parseClients(rows){if(!rows.length)return[];const header=rows[0].map(normalizeHeader);const idx=findColumn(header,["client","client name","name"]);if(idx<0)return rows.flat().map(x=>String(x).trim()).filter(Boolean).slice(1);return[...new Set(rows.slice(1).map(r=>String(r[idx]??"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));}
 
   // ---- Photo attachment (optional) ----
@@ -505,35 +501,29 @@
         setMovementSubmitting(true,"Checking live inventory...");setMovementStatus("Recording movements...");
       }
 
-      // Re-read the live formula results. The previous implementation used the
-      // stale page snapshot and then wrote absolute balances back to the Sheet.
-      const latestInventory=parseInventory(await getValues(ledgerId,CONFIG.INVENTORY_SHEET_NAME));
-      const latestByKey=new Map(latestInventory.map(item=>[lowerText(item?.asset),item]).filter(([key])=>key));
-      const liveBalances=new Map(latestInventory.map(item=>[lowerText(item?.asset),Number(item?.balance)||0]).filter(([key])=>key));
-      const livePrepared=[];
-      for(const movement of data.prepared){
-        const key=lowerText(movement.asset);
-        const item=latestByKey.get(key);
-        if(!item)throw new Error(`Asset "${movement.asset}" is no longer present in Inventory. Refresh the page and try again.`);
-        const current=Number(liveBalances.get(key)||0);
-        const next=movement.movement==="RECEIVED"?current+movement.quantity:current-movement.quantity;
-        if(movement.movement!=="RECEIVED"&&next<0)throw new Error(`The live balance for ${item.asset} is now ${formatNumber(current)}. Another user may have moved some stock. Refresh the page and approve again.`);
-        liveBalances.set(key,next);
-        livePrepared.push({...movement,asset:item.asset,item});
-      }
-
-      const idx=state.transactionIdx;const len=state.transactionHeaderLength||6;
-      const rows=livePrepared.map(item=>buildTransactionRow(idx,len,{timestamp,client:item.client,movement:item.movement,asset:item.asset,quantity:item.quantity,user,comment:data.comment||"",image:imageLink}));
-      if(!window.FM_INVENTORY_LEDGER?.appendMovementBatch)throw new Error("The concurrency-safe inventory ledger is unavailable. Refresh the page and try again.");
-      setMovementSubmitting(true,"Recording movements atomically...");
-      await FM_INVENTORY_LEDGER.appendMovementBatch({
+      // The shared writer re-reads the live inventory immediately before its
+      // single Sheets batch update. It records the resulting warehouse balance
+      // directly on each Asset Transactions row.
+      if(!window.FM_SHEET_WRITER?.appendMovementBatch)throw new Error("The sheet writer is unavailable. Refresh the page and try again.");
+      const result=await FM_SHEET_WRITER.appendMovementBatch({
         spreadsheetId:ledgerId,
         accessToken:state.accessToken,
-        transactionRows:rows,
-        changes:livePrepared.map(item=>({item:item.item,movement:item.movement,quantity:item.quantity,client:item.client})),
+        movements:data.prepared.map(movement=>({
+          timestamp,
+          client:movement.client,
+          movement:movement.movement,
+          asset:movement.asset,
+          quantity:movement.quantity,
+          user,
+          comment:data.comment||"",
+          image:imageLink
+        })),
         user,
         timestamp
       });
+      if(!result?.movements?.length)throw new Error("Google Sheets did not confirm the movement write.");
+
+      const livePrepared=result.movements;
 
       const clientCount=new Set(livePrepared.map(item=>item.client)).size;
       const movementCount=livePrepared.length;
@@ -542,7 +532,6 @@
     finally{movementSubmitBusy=false;setMovementSubmitting(false);$("approve-confirm").disabled=false;$("cancel-confirm").disabled=false;}
   }
 
-  function buildTransactionRow(idx,len,values){const row=new Array(len).fill("");const set=(i,v)=>{if(i>=0&&i<len)row[i]=v;};set(idx.timestamp,values.timestamp);set(idx.client,values.client);set(idx.movement,values.movement);set(idx.asset,values.asset);set(idx.quantity,values.quantity);set(idx.user,values.user);set(idx.comment,values.comment);set(idx.image,values.image);return row;}
   function buildPhotoFilename(data){const safeClient=String(data.client||"client").replace(/[^a-z0-9]+/gi,"-").replace(/^-+|-+$/g,"")||"client";const stamp=new Date().toISOString().replace(/[:.]/g,"-");const ext=data.photoFile?.type==="image/jpeg"?".jpg":((data.photoFile?.name.match(/\.[a-zA-Z0-9]+$/)||[".jpg"])[0]);return`${safeClient}-${data.movement}-${stamp}${ext}`;}
 
   // ---- Drive: daily dated folder + photo upload ----
@@ -565,8 +554,18 @@
     return fetchJson(`${DRIVE_UPLOAD_API}?uploadType=multipart&fields=id,webViewLink`,{method:"POST",headers:{...authHeaders(),"Content-Type":`multipart/related; boundary=${boundary}`},body});
   }
 
+  let movementSubmitLoadingTimer=null;
   function setMovementSubmitting(busy,detail=""){
-    const overlay=$("movement-submit-loading");if(overlay){overlay.classList.toggle("hidden",!busy);overlay.setAttribute("aria-hidden",String(!busy));}
+    const overlay=$("movement-submit-loading");
+    if(movementSubmitLoadingTimer){clearTimeout(movementSubmitLoadingTimer);movementSubmitLoadingTimer=null;}
+    if(overlay&&busy){
+      movementSubmitLoadingTimer=setTimeout(()=>{
+        if(!movementSubmitBusy)return;
+        overlay.classList.remove("hidden");overlay.setAttribute("aria-hidden","false");
+      },250);
+    }else if(overlay){
+      overlay.classList.add("hidden");overlay.setAttribute("aria-hidden","true");
+    }
     if($("movement-submit-loading-detail")&&detail)$("movement-submit-loading-detail").textContent=detail;
     const submit=$("movement-form")?.querySelector("button[type=submit]");if(submit){if(!submit.dataset.originalText)submit.dataset.originalText=submit.textContent;submit.disabled=busy;submit.textContent=busy?"Saving...":submit.dataset.originalText;}
     batchForm?.setAllDisabled?.(busy);
@@ -624,22 +623,31 @@
   function movementLabel(x){return x==="RECEIVED"?"Received":x==="SENT"?"Sent":x==="DISCARD"?"Discard":String(x||"");}function movementClass(x){return lowerText(x);}function formatTimestamp(x){if(!x)return"";const d=new Date(x);return Number.isNaN(d.getTime())?String(x):d.toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});}function formatNumber(x){return Number(x||0).toLocaleString("en-GB");}function numericValue(x){if(x===null||x===undefined||x==="")return 0;const n=Number(String(x).replace(/,/g,""));return Number.isFinite(n)?n:0;}function normalizeHeader(x){return String(x??"").trim().toLowerCase().replace(/\s+/g," ");}function findColumn(headers,names){for(const name of names){const idx=headers.indexOf(name);if(idx>=0)return idx;}return-1;}function quoteSheetName(x){return `'${String(x).replace(/'/g,"''")}'`;}function columnLetter(n){let r="";while(n>0){const rem=(n-1)%26;r=String.fromCharCode(65+rem)+r;n=Math.floor((n-1)/26);}return r;}function escapeDriveQuery(x){return String(x).replace(/\\/g,"\\\\").replace(/'/g,"\\'");}function escapeHtml(x){return String(x??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));}function escapeAttr(x){return escapeHtml(x);}function emptyRow(colspan,text){return `<tr><td colspan="${colspan}" class="empty">${escapeHtml(text)}</td></tr>`;}
   function authHeaders(){return{Authorization:`Bearer ${state.accessToken}`};}
   async function sheetsGet(path){return fetchJson(SHEETS_API+path,{headers:authHeaders()});}async function sheetsPost(path,body){return fetchJson(SHEETS_API+path,{method:"POST",headers:{...authHeaders(),"Content-Type":"application/json"},body:JSON.stringify(body)});}async function sheetsPut(path,body){return fetchJson(SHEETS_API+path,{method:"PUT",headers:{...authHeaders(),"Content-Type":"application/json"},body:JSON.stringify(body)});}
+  function isTransientApiStatus(status){return [408,429,500,502,503,504].includes(Number(status));}
   async function fetchJson(url,options={}){
-    let response=await fetch(url,options);
-    if(response.status===401&&!options.__retried){
-      try{
-        await acquireAccessToken("none",state.idTokenPayload?.email||readSavedSession()?.email,{forceRefresh:true});
-        const retry={...options,__retried:true,headers:{...(options.headers||{}),...authHeaders()}};
-        return fetchJson(url,retry);
-      }catch(e){
-        state.accessToken=null;window.FM_AUTH_CACHE?.clear?.();showReconnectUI("Google access expired. Allow Sheets & Drive access to reconnect.");
-        throw new Error("Google access expired. Allow Sheets & Drive access to reconnect.");
+    const method=String(options.method||"GET").toUpperCase();
+    const safeRetry=["GET","HEAD"].includes(method);
+    const maxRetries=safeRetry?3:0;
+    let response;
+    for(let attempt=0;attempt<=maxRetries;attempt+=1){
+      response=await fetch(url,options);
+      if(response.status===401&&!options.__retried){
+        try{
+          await acquireAccessToken("none",state.idTokenPayload?.email||readSavedSession()?.email,{forceRefresh:true});
+          return fetchJson(url,{...options,__retried:true,headers:{...(options.headers||{}),...authHeaders()}});
+        }catch(_){
+          state.accessToken=null;window.FM_AUTH_CACHE?.clear?.();showReconnectUI("Google access expired. Allow Sheets & Drive access to reconnect.");
+          throw new Error("Google access expired. Allow Sheets & Drive access to reconnect.");
+        }
       }
+      if(response.ok)break;
+      if(!safeRetry||!isTransientApiStatus(response.status)||attempt>=maxRetries)break;
+      const retryAfter=Number(response.headers?.get?.("Retry-After"));
+      const delay=Number.isFinite(retryAfter)&&retryAfter>0?Math.min(32000,retryAfter*1000):Math.min(8000,1000*(2**attempt))+Math.floor(Math.random()*250);
+      await new Promise(resolve=>setTimeout(resolve,delay));
     }
-    const text=await response.text();
-    let data={};
-    try{data=text?JSON.parse(text):{};}catch(_){}
-    if(!response.ok)throw new Error(data?.error?.message||`Request failed (${response.status})`);
+    const text=await response.text();let data={};try{data=text?JSON.parse(text):{}}catch(_){}
+    if(!response.ok){const error=new Error(data?.error?.message||`Request failed (${response.status})`);error.status=response.status;throw error;}
     return data;
   }
   function decodeJwtPayload(jwt){const parts=String(jwt).split(".");if(parts.length!==3)throw new Error("Invalid Google credential.");const base64=parts[1].replace(/-/g,"+").replace(/_/g,"/");const padded=base64+"=".repeat((4-base64.length%4)%4);return JSON.parse(decodeURIComponent(Array.from(atob(padded)).map(c=>`%${c.charCodeAt(0).toString(16).padStart(2,"0")}`).join("")));}

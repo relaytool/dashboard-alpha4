@@ -666,20 +666,16 @@ function bindQuickMenu() {
             state.alertHeaders = alertRows[0]?.slice() || FM_ROUTINE_ALERTS.ALERT_HEADERS.slice();
 
             state.inventory = parseInventory(inventoryRows);
-            if (window.FM_INVENTORY_LEDGER?.ensureChangeLog) {
-                const ledgerIntegrity = await FM_INVENTORY_LEDGER.ensureChangeLog({
-                    spreadsheetId: ledgerId,
-                    accessToken: state.accessToken,
-                    inventoryItems: state.inventory,
-                    user: state.idTokenPayload?.email || readSavedSession()?.email || "System"
-                });
-
-                // A legacy Asset ID column can make existing balance formulas
-                // evaluate to 0/wrong values until the change log is repaired.
-                // Re-read the live inventory whenever the ledger changed so the
-                // dashboard never keeps displaying the pre-repair snapshot.
-                if (ledgerIntegrity?.repaired || ledgerIntegrity?.inventoryChanged) {
-                    state.inventory = parseInventory(await getValues(ledgerId, CONFIG.INVENTORY_SHEET_NAME));
+            // Inventory Change Log is retired. Remove the old sheet once and
+            // keep Asset Inventory as a plain Asset/Balance table.
+            if (window.FM_SHEET_WRITER?.removeLegacyChangeLog) {
+                try {
+                    await FM_SHEET_WRITER.removeLegacyChangeLog({
+                        spreadsheetId: ledgerId,
+                        accessToken: state.accessToken
+                    });
+                } catch (legacyError) {
+                    console.warn("Legacy Inventory Change Log could not be removed yet:", legacyError);
                 }
             }
             state.transactions = parseTransactions(transactionRows);
@@ -1017,7 +1013,8 @@ function bindQuickMenu() {
                         "Quantity",
                         "User",
                         "Comment",
-                        "Image Link"
+                        "Image Link",
+                        "Inventory Balance"
                     ]
                 ]
 
@@ -1304,7 +1301,8 @@ function bindQuickMenu() {
             quantity: findColumn(header, ["quantity", "qty"]),
             user: findColumn(header, ["user", "entered by", "email"]),
             comment: findColumn(header, ["comment", "comments", "notes"]),
-            image: findColumn(header, ["image link", "image", "photo", "picture", "photo link", "attachment", "drive link"])
+            image: findColumn(header, ["image link", "image", "photo", "picture", "photo link", "attachment", "drive link"]),
+            inventoryBalance: findColumn(header, ["inventory balance", "warehouse balance", "balance after movement"])
         };
 
         return rows.slice(1).map(row => ({
@@ -1315,7 +1313,8 @@ function bindQuickMenu() {
             quantity: idx.quantity >= 0 ? numericValue(row[idx.quantity]) : 0,
             user: idx.user >= 0 ? row[idx.user] ?? "" : "",
             comment: idx.comment >= 0 ? String(row[idx.comment] ?? "").trim() : "",
-            image: idx.image >= 0 ? String(row[idx.image] ?? "").trim() : ""
+            image: idx.image >= 0 ? String(row[idx.image] ?? "").trim() : "",
+            inventoryBalance: idx.inventoryBalance >= 0 ? numericValue(row[idx.inventoryBalance]) : null
         })).filter(item => item.asset || item.client);
     }
 
@@ -1335,6 +1334,11 @@ function bindQuickMenu() {
         if (!normalized.some(h => ["image link", "image", "photo", "picture", "photo link", "attachment", "drive link"].includes(h))) {
             header.push("Image Link");
             normalized.push("image link");
+            changed = true;
+        }
+        if (!normalized.some(h => ["inventory balance", "warehouse balance", "balance after movement"].includes(h))) {
+            header.push("Inventory Balance");
+            normalized.push("inventory balance");
             changed = true;
         }
 
@@ -3630,9 +3634,9 @@ function bindQuickMenu() {
                 imageLink = uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`;
             }
 
-            // Never write a calculated absolute balance. Read the current formula
-            // result, apply only this batch's delta, and append both the transaction
-            // rows and balance-change rows in ONE Sheets batchUpdate request.
+            // Read the live balance once before the write. The writer then records the
+            // resulting warehouse balance directly on each transaction row and
+            // updates Asset Inventory in the same Sheets batchUpdate request.
             setMovementSubmitting(true, "Checking live inventory...");
             const latestInventory = parseInventory(await getValues(ledgerId, CONFIG.INVENTORY_SHEET_NAME));
             const latestByKey = new Map(latestInventory.map(item => [String(item.asset || "").trim().toLowerCase(), item]).filter(([key]) => key));
@@ -3652,19 +3656,28 @@ function bindQuickMenu() {
                 livePrepared.push({ ...movement, asset: item.asset, item });
             }
 
-            if (!window.FM_INVENTORY_LEDGER?.appendMovementBatch) {
-                throw new Error("The concurrency-safe inventory ledger is unavailable. Refresh the page and try again.");
+            if (!window.FM_SHEET_WRITER?.appendMovementBatch) {
+                throw new Error("The sheet writer is unavailable. Refresh the page and try again.");
             }
 
-            setMovementSubmitting(true, "Recording movements atomically...");
-            await FM_INVENTORY_LEDGER.appendMovementBatch({
+            setMovementSubmitting(true, "Saving movement...");
+            const result = await FM_SHEET_WRITER.appendMovementBatch({
                 spreadsheetId: ledgerId,
                 accessToken: state.accessToken,
-                transactionRows: livePrepared.map(item => [timestamp, item.client, item.movement, item.asset, item.quantity, user, comment, imageLink]),
-                changes: livePrepared.map(item => ({ item: item.item, movement: item.movement, quantity: item.quantity, client: item.client })),
+                movements: livePrepared.map(item => ({
+                    timestamp,
+                    client: item.client,
+                    movement: item.movement,
+                    asset: item.asset,
+                    quantity: item.quantity,
+                    user,
+                    comment,
+                    image: imageLink
+                })),
                 user,
                 timestamp
             });
+            if (!result?.movements?.length) throw new Error("Google Sheets did not confirm the movement write.");
 
             resetMovementForm();
             setMovementStatus(`${entries.length} client${entries.length === 1 ? "" : "s"} · ${livePrepared.length} movement${livePrepared.length === 1 ? "" : "s"} recorded successfully.`);
@@ -3678,11 +3691,22 @@ function bindQuickMenu() {
         }
     }
 
+    let movementSubmitLoadingTimer = null;
     function setMovementSubmitting(busy, detail = "") {
         const overlay = $("movement-submit-loading");
-        if (overlay) {
-            overlay.classList.toggle("hidden", !busy);
-            overlay.setAttribute("aria-hidden", String(!busy));
+        if (movementSubmitLoadingTimer) {
+            clearTimeout(movementSubmitLoadingTimer);
+            movementSubmitLoadingTimer = null;
+        }
+        if (overlay && busy) {
+            movementSubmitLoadingTimer = setTimeout(() => {
+                if (!movementSubmitBusy) return;
+                overlay.classList.remove("hidden");
+                overlay.setAttribute("aria-hidden", "false");
+            }, 250);
+        } else if (overlay) {
+            overlay.classList.add("hidden");
+            overlay.setAttribute("aria-hidden", "true");
         }
         if ($("movement-submit-loading-detail") && detail) $("movement-submit-loading-detail").textContent = detail;
         const submit = $("movement-form")?.querySelector("button[type=submit]");
@@ -3879,16 +3903,15 @@ function bindQuickMenu() {
             );
 
 
-            if (!window.FM_INVENTORY_LEDGER?.appendAsset) {
-                throw new Error("The concurrency-safe inventory ledger is unavailable. Refresh the page and try again.");
+            if (!window.FM_SHEET_WRITER?.appendAsset) {
+                throw new Error("The sheet writer is unavailable. Refresh the page and try again.");
             }
 
-            await FM_INVENTORY_LEDGER.appendAsset({
+            await FM_SHEET_WRITER.appendAsset({
                 spreadsheetId: CONFIG.INVENTORY_LEDGER_SHEET_ID,
                 accessToken: state.accessToken,
                 assetName,
-                startingBalance: balance,
-                user: state.idTokenPayload?.email || readSavedSession()?.email || "Google user"
+                startingBalance: balance
             });
 
 
@@ -4141,21 +4164,13 @@ function bindQuickMenu() {
             );
 
 
-            const assetCell =
-                columnLetter(
-                    item.assetColumn
-                ) +
-                item.rowNumber;
-
-
-            if (!window.FM_INVENTORY_LEDGER?.migrateRename) {
-                throw new Error("The concurrency-safe inventory ledger is unavailable. Refresh the page and try again.");
+            if (!window.FM_SHEET_WRITER?.migrateRename) {
+                throw new Error("The sheet writer is unavailable. Refresh the page and try again.");
             }
 
-            await FM_INVENTORY_LEDGER.migrateRename({
+            await FM_SHEET_WRITER.migrateRename({
                 spreadsheetId: CONFIG.INVENTORY_LEDGER_SHEET_ID,
                 accessToken: state.accessToken,
-                oldName: item.asset,
                 newName: cleanName,
                 rowNumber: item.rowNumber,
                 assetColumn: item.assetColumn
@@ -4479,21 +4494,47 @@ function bindQuickMenu() {
     }
 
 
+    function isTransientApiStatus(status) { return [408, 429, 500, 502, 503, 504].includes(Number(status)); }
+
     async function fetchJson(url, options = {}) {
-        let response = await fetch(url, options);
-        if (response.status === 401 && !options.__retried) {
-            try {
-                await acquireAccessToken("none", state.idTokenPayload?.email || readSavedSession()?.email, {forceRefresh: true});
-                return fetchJson(url, { ...options, __retried: true, headers: { ...(options.headers || {}), ...authHeaders() } });
-            } catch (_) {
-                state.accessToken = null;
-                window.FM_AUTH_CACHE?.clear?.();
-                showReconnectUI("Google Sheets access expired. Allow Sheets & Drive access to reconnect.");
-                throw new Error("Google Sheets access expired. Allow Sheets & Drive access to reconnect.");
+        const method = String(options.method || "GET").toUpperCase();
+        const safeRetry = ["GET", "HEAD"].includes(method);
+        const maxRetries = safeRetry ? 3 : 0;
+        let response;
+
+        for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+            response = await fetch(url, options);
+
+            if (response.status === 401 && !options.__retried) {
+                try {
+                    await acquireAccessToken("none", state.idTokenPayload?.email || readSavedSession()?.email, {forceRefresh: true});
+                    return fetchJson(url, { ...options, __retried: true, headers: { ...(options.headers || {}), ...authHeaders() } });
+                } catch (_) {
+                    state.accessToken = null;
+                    window.FM_AUTH_CACHE?.clear?.();
+                    showReconnectUI("Google Sheets access expired. Allow Sheets & Drive access to reconnect.");
+                    throw new Error("Google Sheets access expired. Allow Sheets & Drive access to reconnect.");
+                }
             }
+
+            if (response.ok) break;
+            if (!safeRetry || !isTransientApiStatus(response.status) || attempt >= maxRetries) break;
+
+            const retryAfter = Number(response.headers?.get?.("Retry-After"));
+            const delay = Number.isFinite(retryAfter) && retryAfter > 0
+                ? Math.min(32000, retryAfter * 1000)
+                : Math.min(8000, 1000 * (2 ** attempt)) + Math.floor(Math.random() * 250);
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
-        const text = await response.text(); let data = {}; try { data = text ? JSON.parse(text) : {}; } catch (_) {}
-        if (!response.ok) throw new Error(data?.error?.message || `Request failed (${response.status})`);
+
+        const text = await response.text();
+        let data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+        if (!response.ok) {
+            const error = new Error(data?.error?.message || `Request failed (${response.status})`);
+            error.status = response.status;
+            throw error;
+        }
         return data;
     }
 
