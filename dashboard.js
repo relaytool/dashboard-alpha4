@@ -667,12 +667,20 @@ function bindQuickMenu() {
 
             state.inventory = parseInventory(inventoryRows);
             if (window.FM_INVENTORY_LEDGER?.ensureChangeLog) {
-                await FM_INVENTORY_LEDGER.ensureChangeLog({
+                const ledgerIntegrity = await FM_INVENTORY_LEDGER.ensureChangeLog({
                     spreadsheetId: ledgerId,
                     accessToken: state.accessToken,
                     inventoryItems: state.inventory,
                     user: state.idTokenPayload?.email || readSavedSession()?.email || "System"
                 });
+
+                // A legacy Asset ID column can make existing balance formulas
+                // evaluate to 0/wrong values until the change log is repaired.
+                // Re-read the live inventory whenever the ledger changed so the
+                // dashboard never keeps displaying the pre-repair snapshot.
+                if (ledgerIntegrity?.repaired || ledgerIntegrity?.inventoryChanged) {
+                    state.inventory = parseInventory(await getValues(ledgerId, CONFIG.INVENTORY_SHEET_NAME));
+                }
             }
             state.transactions = parseTransactions(transactionRows);
             state.clients = parseClients(clientListRows);

@@ -265,12 +265,19 @@
       state.transactionHeaderLength=columns.length;
       state.inventory=parseInventory(inventoryRows);
       if(window.FM_INVENTORY_LEDGER?.ensureChangeLog){
-        await FM_INVENTORY_LEDGER.ensureChangeLog({
+        const ledgerIntegrity=await FM_INVENTORY_LEDGER.ensureChangeLog({
           spreadsheetId:ledgerId,
           accessToken:state.accessToken,
           inventoryItems:state.inventory,
           user:state.idTokenPayload?.email||readSavedSession()?.email||"System"
         });
+
+        // If the change log or inventory schema was repaired, refresh the live
+        // inventory so the audit trail and movement form cannot keep a stale
+        // 0/wrong balance snapshot from before the repair.
+        if(ledgerIntegrity?.repaired||ledgerIntegrity?.inventoryChanged){
+          state.inventory=parseInventory(await getValues(ledgerId,CONFIG.INVENTORY_SHEET_NAME));
+        }
       }
       state.transactions=parseTransactions(transactionRows,columns.idx);
       state.clients=parseClients(clientRows);
