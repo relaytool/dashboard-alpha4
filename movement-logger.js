@@ -264,6 +264,14 @@
       state.transactionIdx=columns.idx;
       state.transactionHeaderLength=columns.length;
       state.inventory=parseInventory(inventoryRows);
+      if(window.FM_INVENTORY_LEDGER?.ensureChangeLog){
+        await FM_INVENTORY_LEDGER.ensureChangeLog({
+          spreadsheetId:ledgerId,
+          accessToken:state.accessToken,
+          inventoryItems:state.inventory,
+          user:state.idTokenPayload?.email||readSavedSession()?.email||"System"
+        });
+      }
       state.transactions=parseTransactions(transactionRows,columns.idx);
       state.clients=parseClients(clientRows);
 
@@ -473,10 +481,12 @@
     catch(authError){
       movementSubmitBusy=false;setMovementSubmitting(false);$("approve-confirm").disabled=false;$("cancel-confirm").disabled=false;showReconnectUI("Google access expired. Allow Sheets & Drive access, then approve the movement again.");setMovementStatus(authError.message||"Google access could not be refreshed.",true);return;
     }
-    setMovementSubmitting(true,data.photoFile?"Uploading photo...":"Recording movement...");
+    setMovementSubmitting(true,data.photoFile?"Uploading photo...":"Checking live inventory...");
     setMovementStatus("Recording movements...");
     try{
-      const ledgerId=CONFIG.INVENTORY_LEDGER_SHEET_ID;const user=state.idTokenPayload?.email||readSavedSession()?.email||"Google user";const timestamp=new Date().toISOString();
+      const ledgerId=CONFIG.INVENTORY_LEDGER_SHEET_ID;
+      const user=state.idTokenPayload?.email||readSavedSession()?.email||"Google user";
+      const timestamp=transactionTimestampFromTime(data.timestamp);
       let imageLink="";
       if(data.photoFile){
         setMovementStatus("Uploading photo...");
@@ -485,21 +495,41 @@
         const uploadFile=await FM_MEDIA.optimizeImageForUpload(data.photoFile);
         const uploaded=await uploadImageToDrive(uploadFile,folderId,filename);
         imageLink=uploaded.webViewLink||`https://drive.google.com/file/d/${uploaded.id}/view`;
-        setMovementSubmitting(true,"Recording movement...");setMovementStatus("Recording movements...");
+        setMovementSubmitting(true,"Checking live inventory...");setMovementStatus("Recording movements...");
       }
+
+      // Re-read the live formula results. The previous implementation used the
+      // stale page snapshot and then wrote absolute balances back to the Sheet.
+      const latestInventory=parseInventory(await getValues(ledgerId,CONFIG.INVENTORY_SHEET_NAME));
+      const latestByKey=new Map(latestInventory.map(item=>[lowerText(item?.asset),item]).filter(([key])=>key));
+      const liveBalances=new Map(latestInventory.map(item=>[lowerText(item?.asset),Number(item?.balance)||0]).filter(([key])=>key));
+      const livePrepared=[];
+      for(const movement of data.prepared){
+        const key=lowerText(movement.asset);
+        const item=latestByKey.get(key);
+        if(!item)throw new Error(`Asset "${movement.asset}" is no longer present in Inventory. Refresh the page and try again.`);
+        const current=Number(liveBalances.get(key)||0);
+        const next=movement.movement==="RECEIVED"?current+movement.quantity:current-movement.quantity;
+        if(movement.movement!=="RECEIVED"&&next<0)throw new Error(`The live balance for ${item.asset} is now ${formatNumber(current)}. Another user may have moved some stock. Refresh the page and approve again.`);
+        liveBalances.set(key,next);
+        livePrepared.push({...movement,asset:item.asset,item});
+      }
+
       const idx=state.transactionIdx;const len=state.transactionHeaderLength||6;
-      const rows=data.prepared.map(item=>buildTransactionRow(idx,len,{timestamp,client:item.client,movement:item.movement,asset:item.asset,quantity:item.quantity,user,comment:data.comment||"",image:imageLink}));
-      const transactionRange=`${quoteSheetName(CONFIG.TRANSACTIONS_SHEET_NAME)}!A:${columnLetter(len)}`;
-      await sheetsPost(`/${encodeURIComponent(ledgerId)}/values/${encodeURIComponent(transactionRange)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,{values:rows});
-      const inventoryByKey=new Map(state.inventory.map(item=>[lowerText(item?.asset),item]).filter(([key])=>key));
-      for(const [key,balance] of data.balances){
-        const item=inventoryByKey.get(key);if(!item)continue;
-        const balanceCell=columnLetter(item.balanceColumn)+item.rowNumber;
-        const inventoryRange=`${quoteSheetName(CONFIG.INVENTORY_SHEET_NAME)}!${balanceCell}`;
-        await sheetsPut(`/${encodeURIComponent(ledgerId)}/values/${encodeURIComponent(inventoryRange)}?valueInputOption=USER_ENTERED`,{range:inventoryRange,majorDimension:"ROWS",values:[[balance]]});
-      }
-      const clientCount=new Set(data.prepared.map(item=>item.client)).size;
-      const movementCount=data.prepared.length;
+      const rows=livePrepared.map(item=>buildTransactionRow(idx,len,{timestamp,client:item.client,movement:item.movement,asset:item.asset,quantity:item.quantity,user,comment:data.comment||"",image:imageLink}));
+      if(!window.FM_INVENTORY_LEDGER?.appendMovementBatch)throw new Error("The concurrency-safe inventory ledger is unavailable. Refresh the page and try again.");
+      setMovementSubmitting(true,"Recording movements atomically...");
+      await FM_INVENTORY_LEDGER.appendMovementBatch({
+        spreadsheetId:ledgerId,
+        accessToken:state.accessToken,
+        transactionRows:rows,
+        changes:livePrepared.map(item=>({item:item.item,movement:item.movement,quantity:item.quantity,client:item.client})),
+        user,
+        timestamp
+      });
+
+      const clientCount=new Set(livePrepared.map(item=>item.client)).size;
+      const movementCount=livePrepared.length;
       closeConfirm();resetMovementForm();setMovementStatus(`${movementCount} movement${movementCount===1?"":"s"} recorded for ${clientCount} client${clientCount===1?"":"s"}.`);await loadLogger();
     }catch(e){console.error(e);setMovementStatus(e.message||"Unable to record movement.",true);}
     finally{movementSubmitBusy=false;setMovementSubmitting(false);$("approve-confirm").disabled=false;$("cancel-confirm").disabled=false;}
@@ -561,6 +591,28 @@
     return null;
   }
   function updatePreview(){batchForm?.updatePreview?.("preview-text");}
+  function resetMovementForm(){
+    $("movement-form")?.reset();
+    batchForm?.reset?.();
+    setDefaultTimestamp();
+    clearPhoto();
+    window._fmCameraFile=null;
+    handleMovementChange();
+  }
+  function transactionTimestampFromTime(timeValue){
+    const value=String(timeValue||"").trim();
+    if(!/^\d{2}:\d{2}$/.test(value))return new Date().toISOString();
+    const [hours,minutes]=value.split(":").map(Number);
+    const now=new Date();
+    const selected=new Date(now.getFullYear(),now.getMonth(),now.getDate(),hours,minutes,0,0);
+    const offset=-selected.getTimezoneOffset();
+    const sign=offset>=0?"+":"-";
+    const abs=Math.abs(offset);
+    const offsetHours=String(Math.floor(abs/60)).padStart(2,"0");
+    const offsetMinutes=String(abs%60).padStart(2,"0");
+    const pad=v=>String(v).padStart(2,"0");
+    return `${selected.getFullYear()}-${pad(selected.getMonth()+1)}-${pad(selected.getDate())}T${pad(hours)}:${pad(minutes)}:00${sign}${offsetHours}:${offsetMinutes}`;
+  }
   function setDefaultTimestamp(){const input=$("timestamp");if(!input)return;const now=new Date();input.value=`${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;}
   function movementLabel(x){return x==="RECEIVED"?"Received":x==="SENT"?"Sent":x==="DISCARD"?"Discard":String(x||"");}function movementClass(x){return lowerText(x);}function formatTimestamp(x){if(!x)return"";const d=new Date(x);return Number.isNaN(d.getTime())?String(x):d.toLocaleString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"});}function formatNumber(x){return Number(x||0).toLocaleString("en-GB");}function numericValue(x){if(x===null||x===undefined||x==="")return 0;const n=Number(String(x).replace(/,/g,""));return Number.isFinite(n)?n:0;}function normalizeHeader(x){return String(x??"").trim().toLowerCase().replace(/\s+/g," ");}function findColumn(headers,names){for(const name of names){const idx=headers.indexOf(name);if(idx>=0)return idx;}return-1;}function quoteSheetName(x){return `'${String(x).replace(/'/g,"''")}'`;}function columnLetter(n){let r="";while(n>0){const rem=(n-1)%26;r=String.fromCharCode(65+rem)+r;n=Math.floor((n-1)/26);}return r;}function escapeDriveQuery(x){return String(x).replace(/\\/g,"\\\\").replace(/'/g,"\\'");}function escapeHtml(x){return String(x??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));}function escapeAttr(x){return escapeHtml(x);}function emptyRow(colspan,text){return `<tr><td colspan="${colspan}" class="empty">${escapeHtml(text)}</td></tr>`;}
   function authHeaders(){return{Authorization:`Bearer ${state.accessToken}`};}

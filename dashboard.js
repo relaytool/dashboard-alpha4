@@ -666,6 +666,14 @@ function bindQuickMenu() {
             state.alertHeaders = alertRows[0]?.slice() || FM_ROUTINE_ALERTS.ALERT_HEADERS.slice();
 
             state.inventory = parseInventory(inventoryRows);
+            if (window.FM_INVENTORY_LEDGER?.ensureChangeLog) {
+                await FM_INVENTORY_LEDGER.ensureChangeLog({
+                    spreadsheetId: ledgerId,
+                    accessToken: state.accessToken,
+                    inventoryItems: state.inventory,
+                    user: state.idTokenPayload?.email || readSavedSession()?.email || "System"
+                });
+            }
             state.transactions = parseTransactions(transactionRows);
             state.clients = parseClients(clientListRows);
             state.routines = FM_ROUTINE_ALERTS.parseRoutineRows(routineRows);
@@ -3569,7 +3577,10 @@ function bindQuickMenu() {
         if (validationError) { setMovementStatus(validationError, true); return; }
         if (!timestampInput) { setMovementStatus("Choose a time for this movement batch.", true); return; }
 
-        const balances = new Map(state.inventory.map(item => [item.asset.toLowerCase(), item.balance]));
+        // Quick local validation for instant feedback. The live Sheet is re-read
+        // again immediately before the atomic write, so a stale page snapshot
+        // can never be used to overwrite another user's balance.
+        const balances = new Map(state.inventory.map(item => [String(item.asset || "").toLowerCase(), Number(item.balance) || 0]));
         const prepared = [];
         for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
             const entry = entries[entryIndex];
@@ -3579,13 +3590,13 @@ function bindQuickMenu() {
                 const key = String(assetEntry.asset || "").toLowerCase();
                 if (seen.has(key)) { setMovementStatus(`Client ${entryIndex + 1} has ${assetEntry.asset} more than once.`, true); return; }
                 seen.add(key);
-                const item = state.inventory.find(x => x.asset.toLowerCase() === key);
+                const item = state.inventory.find(x => String(x.asset || "").toLowerCase() === key);
                 if (!item) { setMovementStatus(`Asset "${assetEntry.asset}" is not present in Inventory.`, true); return; }
                 const current = balances.get(key) || 0;
                 const next = entry.movement === "RECEIVED" ? current + assetEntry.quantity : current - assetEntry.quantity;
                 if (entry.movement !== "RECEIVED" && next < 0) { setMovementStatus(`Cannot remove ${assetEntry.quantity} ${item.asset}. Current balance is ${formatNumber(current)}.`, true); return; }
                 balances.set(key, next);
-                prepared.push({ client, movement: entry.movement, asset: item.asset, quantity: assetEntry.quantity, item });
+                prepared.push({ client, movement: entry.movement, asset: item.asset, quantity: assetEntry.quantity });
             }
         }
 
@@ -3598,37 +3609,57 @@ function bindQuickMenu() {
             setMovementStatus(authError.message || "Google access could not be refreshed.", true); return;
         }
 
-        setMovementSubmitting(true, photoFile ? "Uploading photo..." : "Recording movements...");
         try {
-            setMovementStatus(photoFile ? "Uploading photo..." : "Recording movements...");
             const ledgerId = CONFIG.INVENTORY_LEDGER_SHEET_ID;
-            const timestamp = new Date().toISOString();
+            const timestamp = transactionTimestampFromTime(timestampInput);
             let imageLink = "";
             if (photoFile) {
+                setMovementSubmitting(true, "Uploading photo...");
+                setMovementStatus("Uploading photo...");
                 const folderId = await getOrCreateDailyFolder(transactionDateKey(timestamp));
                 const uploadFile = await FM_MEDIA.optimizeImageForUpload(photoFile);
                 const uploaded = await uploadImageToDrive(uploadFile, folderId, buildPhotoFilename({client:"batch", movement:"MIXED", photoFile}));
                 imageLink = uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`;
             }
 
-            await sheetsPost(
-                `/${encodeURIComponent(ledgerId)}/values/${encodeURIComponent(`${quoteSheetName(CONFIG.TRANSACTIONS_SHEET_NAME)}!A:H`)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-                { values: prepared.map(item => [timestamp, item.client, item.movement, item.asset, item.quantity, user, comment, imageLink]) }
-            );
+            // Never write a calculated absolute balance. Read the current formula
+            // result, apply only this batch's delta, and append both the transaction
+            // rows and balance-change rows in ONE Sheets batchUpdate request.
+            setMovementSubmitting(true, "Checking live inventory...");
+            const latestInventory = parseInventory(await getValues(ledgerId, CONFIG.INVENTORY_SHEET_NAME));
+            const latestByKey = new Map(latestInventory.map(item => [String(item.asset || "").trim().toLowerCase(), item]).filter(([key]) => key));
+            const liveBalances = new Map(latestInventory.map(item => [String(item.asset || "").trim().toLowerCase(), Number(item.balance) || 0]).filter(([key]) => key));
+            const livePrepared = [];
 
-            const changedAssets = new Map();
-            prepared.forEach(item => changedAssets.set(item.item.asset.toLowerCase(), item.item));
-            for (const item of changedAssets.values()) {
-                const balanceCell = columnLetter(item.balanceColumn) + item.rowNumber;
-                const inventoryRange = `${quoteSheetName(CONFIG.INVENTORY_SHEET_NAME)}!${balanceCell}`;
-                await sheetsPut(
-                    `/${encodeURIComponent(ledgerId)}/values/${encodeURIComponent(inventoryRange)}?valueInputOption=USER_ENTERED`,
-                    { range: inventoryRange, majorDimension:"ROWS", values:[[balances.get(item.asset.toLowerCase())]] }
-                );
+            for (const movement of prepared) {
+                const key = String(movement.asset || "").trim().toLowerCase();
+                const item = latestByKey.get(key);
+                if (!item) throw new Error(`Asset "${movement.asset}" is no longer present in Inventory. Refresh the page and try again.`);
+                const current = Number(liveBalances.get(key) || 0);
+                const next = movement.movement === "RECEIVED" ? current + movement.quantity : current - movement.quantity;
+                if (movement.movement !== "RECEIVED" && next < 0) {
+                    throw new Error(`The live balance for ${item.asset} is now ${formatNumber(current)}. Another user may have moved some stock. Refresh the page and submit again.`);
+                }
+                liveBalances.set(key, next);
+                livePrepared.push({ ...movement, asset: item.asset, item });
             }
 
+            if (!window.FM_INVENTORY_LEDGER?.appendMovementBatch) {
+                throw new Error("The concurrency-safe inventory ledger is unavailable. Refresh the page and try again.");
+            }
+
+            setMovementSubmitting(true, "Recording movements atomically...");
+            await FM_INVENTORY_LEDGER.appendMovementBatch({
+                spreadsheetId: ledgerId,
+                accessToken: state.accessToken,
+                transactionRows: livePrepared.map(item => [timestamp, item.client, item.movement, item.asset, item.quantity, user, comment, imageLink]),
+                changes: livePrepared.map(item => ({ item: item.item, movement: item.movement, quantity: item.quantity, client: item.client })),
+                user,
+                timestamp
+            });
+
             resetMovementForm();
-            setMovementStatus(`${entries.length} client${entries.length === 1 ? "" : "s"} · ${prepared.length} movement${prepared.length === 1 ? "" : "s"} recorded successfully.`);
+            setMovementStatus(`${entries.length} client${entries.length === 1 ? "" : "s"} · ${livePrepared.length} movement${livePrepared.length === 1 ? "" : "s"} recorded successfully.`);
             await loadDashboard();
         } catch (error) {
             console.error(error);
@@ -3840,33 +3871,17 @@ function bindQuickMenu() {
             );
 
 
-            const range =
-                `${quoteSheetName(
-                    CONFIG.INVENTORY_SHEET_NAME
-                )}!A:B`;
+            if (!window.FM_INVENTORY_LEDGER?.appendAsset) {
+                throw new Error("The concurrency-safe inventory ledger is unavailable. Refresh the page and try again.");
+            }
 
-
-            await sheetsPost(
-
-                `/${encodeURIComponent(
-                    CONFIG.INVENTORY_LEDGER_SHEET_ID
-                )}/values/${encodeURIComponent(
-                    range
-                )}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-
-                {
-
-                    values: [[
-
-                        assetName,
-
-                        balance
-
-                    ]]
-
-                }
-
-            );
+            await FM_INVENTORY_LEDGER.appendAsset({
+                spreadsheetId: CONFIG.INVENTORY_LEDGER_SHEET_ID,
+                accessToken: state.accessToken,
+                assetName,
+                startingBalance: balance,
+                user: state.idTokenPayload?.email || readSavedSession()?.email || "Google user"
+            });
 
 
             input.value = "";
@@ -4125,34 +4140,18 @@ function bindQuickMenu() {
                 item.rowNumber;
 
 
-            const range =
-                `${quoteSheetName(
-                    CONFIG.INVENTORY_SHEET_NAME
-                )}!${assetCell}`;
+            if (!window.FM_INVENTORY_LEDGER?.migrateRename) {
+                throw new Error("The concurrency-safe inventory ledger is unavailable. Refresh the page and try again.");
+            }
 
-
-            await sheetsPut(
-
-                `/${encodeURIComponent(
-                    CONFIG.INVENTORY_LEDGER_SHEET_ID
-                )}/values/${encodeURIComponent(
-                    range
-                )}?valueInputOption=USER_ENTERED`,
-
-                {
-
-                    range,
-
-                    majorDimension:
-                        "ROWS",
-
-                    values: [[
-                        cleanName
-                    ]]
-
-                }
-
-            );
+            await FM_INVENTORY_LEDGER.migrateRename({
+                spreadsheetId: CONFIG.INVENTORY_LEDGER_SHEET_ID,
+                accessToken: state.accessToken,
+                oldName: item.asset,
+                newName: cleanName,
+                rowNumber: item.rowNumber,
+                assetColumn: item.assetColumn
+            });
 
 
             setInventoryManageStatus(
@@ -4278,6 +4277,21 @@ function bindQuickMenu() {
         updateMovementPreview();
     }
 
+
+    function transactionTimestampFromTime(timeValue) {
+        const value = String(timeValue || "").trim();
+        if (!/^\d{2}:\d{2}$/.test(value)) return new Date().toISOString();
+        const [hours, minutes] = value.split(":").map(Number);
+        const now = new Date();
+        const selected = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0, 0);
+        const offset = -selected.getTimezoneOffset();
+        const sign = offset >= 0 ? "+" : "-";
+        const abs = Math.abs(offset);
+        const offsetHours = String(Math.floor(abs / 60)).padStart(2, "0");
+        const offsetMinutes = String(abs % 60).padStart(2, "0");
+        const pad = value => String(value).padStart(2, "0");
+        return `${selected.getFullYear()}-${pad(selected.getMonth() + 1)}-${pad(selected.getDate())}T${pad(hours)}:${pad(minutes)}:00${sign}${offsetHours}:${offsetMinutes}`;
+    }
 
     function setDefaultTimestamp() {
 
