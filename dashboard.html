@@ -665,7 +665,6 @@
             </div>
             <label>From date<input type="date" id="client-ledger-export-from"></label>
             <label>To date<input type="date" id="client-ledger-export-to"></label>
-            <label class="client-ledger-week-picker">Weekly report — choose any date in the week<input type="date" id="client-ledger-export-week"></label>
             <div class="client-ledger-export-assets-field">
                 <div class="client-ledger-export-assets-heading">
                     <span>Asset types</span>
@@ -674,9 +673,13 @@
                 <div id="client-ledger-export-assets" class="client-ledger-export-assets" role="group" aria-label="Asset types"></div>
                 <small class="muted">Select one or more assets, or leave all selected.</small>
             </div>
+            <label class="client-ledger-week-field">
+                Week to report
+                <input type="week" id="client-ledger-export-week" aria-label="Choose the week for the weekly PDF report">
+            </label>
             <label class="client-ledger-export-check">
                 <input type="checkbox" id="client-ledger-export-photos" checked>
-                <span>Include transaction photo links / previews where available</span>
+                <span>Include and archive transaction photos (compact previews where available)</span>
             </label>
             <p id="client-ledger-export-status" class="status" aria-live="polite"></p>
         </div>
@@ -684,7 +687,7 @@
             <button type="button" class="secondary" id="cancel-client-ledger-export">Cancel</button>
             <div class="client-ledger-export-action-group">
                 <button type="button" class="secondary" id="run-client-ledger-pdf">Export PDF</button>
-                <button type="button" class="secondary" id="run-client-ledger-weekly-pdf">Weekly PDF</button>
+                <button type="button" class="secondary" id="run-client-ledger-week-pdf">Export Weekly PDF</button>
                 <button type="button" class="primary" id="run-client-ledger-export">Save XLSX + Client Sheet</button>
             </div>
         </div>

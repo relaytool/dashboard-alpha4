@@ -3603,6 +3603,7 @@ td{border-top-color:#e7ebf0!important;color:#273244!important}
 .client-ledger-export-action-group button{min-width:160px}
 @media (max-width:640px){.client-ledger-export-assets{grid-template-columns:1fr}.client-ledger-export-actions{display:grid;grid-template-columns:1fr}.client-ledger-export-action-group{display:grid;grid-template-columns:1fr}.client-ledger-export-action-group button{width:100%}}
 
-.client-ledger-week-picker{grid-column:1/-1}
-.client-ledger-week-picker::after{content:"Weekly PDF summarises each day and the full week; it does not list individual transactions.";font-size:10px;font-weight:600;color:var(--muted,#8b93a1);line-height:1.4}
-.client-ledger-export-action-group button{min-width:135px}
+/* Client ledger weekly summary controls */
+.client-ledger-week-field{grid-column:1/-1!important;display:flex;flex-direction:column;gap:7px;font-size:11px;font-weight:800;color:var(--muted,#aaa5bc)}
+.client-ledger-export-action-group #run-client-ledger-week-pdf{min-width:160px}
+@media(max-width:640px){.client-ledger-export-action-group #run-client-ledger-week-pdf{width:100%}}

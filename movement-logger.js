@@ -494,7 +494,7 @@
       if(data.photoFile){
         setMovementStatus("Uploading photo...");
         const folderId=await getOrCreateDailyFolder(todayDateStr());
-        const filename=buildPhotoFilename(data);
+        const filename=buildPhotoFilename({...data,timestamp});
         const uploadFile=await FM_MEDIA.optimizeImageForUpload(data.photoFile);
         const uploaded=await uploadImageToDrive(uploadFile,folderId,filename);
         imageLink=uploaded.webViewLink||`https://drive.google.com/file/d/${uploaded.id}/view`;
@@ -532,7 +532,28 @@
     finally{movementSubmitBusy=false;setMovementSubmitting(false);$("approve-confirm").disabled=false;$("cancel-confirm").disabled=false;}
   }
 
-  function buildPhotoFilename(data){const safeClient=String(data.client||"client").replace(/[^a-z0-9]+/gi,"-").replace(/^-+|-+$/g,"")||"client";const stamp=new Date().toISOString().replace(/[:.]/g,"-");const ext=data.photoFile?.type==="image/jpeg"?".jpg":((data.photoFile?.name.match(/\.[a-zA-Z0-9]+$/)||[".jpg"])[0]);return`${safeClient}-${data.movement}-${stamp}${ext}`;}
+  function buildPhotoFilename(data={}){
+    const records=Array.isArray(data.prepared)&&data.prepared.length?data.prepared:(Array.isArray(data.entries)?data.entries:[]);
+    const clients=[...new Set(records.map(record=>{
+      const movement=String(record?.movement||"").toUpperCase();
+      return String(movement==="DISCARD"?SELF_CLIENT:(record?.client||"")).trim();
+    }).filter(Boolean))];
+    const fallbackClient=String(data.client||"").trim();
+    if(!clients.length&&fallbackClient&&!(["batch","unknown client","client"].includes(fallbackClient.toLowerCase())))clients.push(fallbackClient);
+    const clientLabel=clients.length?(clients.length<=3?clients.join("-AND-"):`${clients[0]}-AND-${clients.length-1}-OTHERS`):"UNKNOWN-CLIENT";
+    const safeClient=clientLabel.toUpperCase().replace(/[^A-Z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,90)||"UNKNOWN-CLIENT";
+    const movements=[...new Set(records.map(record=>String(record?.movement||"").trim().toUpperCase()).filter(Boolean))];
+    const suppliedMovement=String(data.movement||"").trim().toUpperCase();
+    if(!movements.length&&suppliedMovement&&suppliedMovement!=="MIXED")movements.push(suppliedMovement);
+    const movementPart=movements.length===1?(movements[0]==="DISCARD"?"DISCARDED":movements[0]):"MIXED";
+    const selectedDate=data.timestamp?new Date(data.timestamp):null;
+    const fileDate=selectedDate&&!Number.isNaN(selectedDate.getTime())?selectedDate:new Date();
+    const stamp=fileDate.toISOString().replace(/[:.]/g,"-");
+    const uniqueSuffix=Date.now().toString(36).toUpperCase();
+    const originalName=String(data.photoFile?.name||"");
+    const ext=data.photoFile?.type==="image/jpeg"?".jpg":((originalName.match(/\.[a-zA-Z0-9]+$/)||[".jpg"])[0]);
+    return `${safeClient}-${movementPart}-${stamp}-${uniqueSuffix}${ext}`;
+  }
 
   // ---- Drive: daily dated folder + photo upload ----
   async function getOrCreateDailyFolder(dateStr){
