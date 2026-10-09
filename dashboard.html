@@ -9,7 +9,7 @@
 
     <title>FM Assets Dashboard</title>
 
-    <link rel="stylesheet" href="dashboard.css?v=client-ledger-export-20261009-v2">
+    <link rel="stylesheet" href="dashboard.css?v=client-export-20261008-v1">
 <link rel="stylesheet" href="transaction-display.css?v=grouped-movements-20261005">
     <link rel="stylesheet" href="app-ui-polish.css?v=ui-20261005-mobile-v5">
 </head>
@@ -654,7 +654,7 @@
             <div>
                 <div class="eyebrow">CLIENT TOTALS</div>
                 <h2 id="client-ledger-export-title">Export client ledger</h2>
-                <p class="muted">Export a clean client ledger to PDF, Excel, or a new Google Sheet. Date-difference columns are omitted; the all-time balance and dated Sent / Received summaries are clearly labelled.</p>
+                <p class="muted">Exports use the client report layout: newest date blocks are written at the top and older history stays underneath.</p>
             </div>
             <button type="button" id="close-client-ledger-export" class="icon-button" aria-label="Close">×</button>
         </div>
@@ -665,18 +665,26 @@
             </div>
             <label>From date<input type="date" id="client-ledger-export-from"></label>
             <label>To date<input type="date" id="client-ledger-export-to"></label>
-            <label>Asset type<select id="client-ledger-export-asset"><option value="">All asset types</option></select></label>
+            <div class="client-ledger-export-assets-field">
+                <div class="client-ledger-export-assets-heading">
+                    <span>Asset types</span>
+                    <button type="button" class="link-button" id="client-ledger-export-select-all">Select all</button>
+                </div>
+                <div id="client-ledger-export-assets" class="client-ledger-export-assets" role="group" aria-label="Asset types"></div>
+                <small class="muted">Select one or more assets, or leave all selected.</small>
+            </div>
             <label class="client-ledger-export-check">
                 <input type="checkbox" id="client-ledger-export-photos" checked>
-                <span>Embed transaction photos when available</span>
+                <span>Include transaction photo links / previews where available</span>
             </label>
             <p id="client-ledger-export-status" class="status" aria-live="polite"></p>
         </div>
         <div class="client-ledger-export-actions">
             <button type="button" class="secondary" id="cancel-client-ledger-export">Cancel</button>
-            <button type="button" class="secondary" id="run-client-ledger-pdf">Export PDF</button>
-            <button type="button" class="secondary" id="run-client-ledger-export">Export XLSX</button>
-            <button type="button" class="primary" id="run-client-ledger-sheets">Export to Google Sheets</button>
+            <div class="client-ledger-export-action-group">
+                <button type="button" class="secondary" id="run-client-ledger-pdf">Export PDF</button>
+                <button type="button" class="primary" id="run-client-ledger-export">Save XLSX + Client Sheet</button>
+            </div>
         </div>
     </div>
 </div>
@@ -879,9 +887,9 @@
 
 <script src="config.js?v=eod-ledger-20261003-merged"></script><script src="sheet-writer.js?v=sheet-writer-20261007-v1"></script>
 <script src="movement-batch.js?v=multi-client-20261005"></script>
-<script src="transaction-display-utils.js?v=shared-20261005-v4"></script>
+<script src="transaction-display-utils.js?v=shared-20261008-audit-order-v1"></script>
 <script src="routine-alert-utils.js?v=eod-ledger-20261003-merged"></script>
-<script src="dashboard.js?v=client-ledger-export-20261009-v2"></script>
+<script src="dashboard.js?v=client-export-20261009-v3"></script>
 
 </body>
 </html>

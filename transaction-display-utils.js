@@ -21,10 +21,25 @@
     return movement === "RECEIVED" ? "movement-received" : movement === "SENT" ? "movement-sent" : movement === "DISCARD" ? "movement-discard" : "movement-other";
   }
 
+  function timestampMs(value) {
+    const direct = new Date(value);
+    if (!Number.isNaN(direct.getTime())) return direct.getTime();
+    const text = String(value || "").trim();
+    if (/^\d+(?:\.\d+)?$/.test(text)) {
+      const serial = Number(text);
+      if (serial > 20000 && serial < 80000) return Math.round((serial - 25569) * 86400000);
+    }
+    const dmy = text.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})(?:[ T,]+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?)?/);
+    if (dmy) {
+      const ms = Date.UTC(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]), Number(dmy[4] || 0), Number(dmy[5] || 0), Number(dmy[6] || 0), Number(String(dmy[7] || "0").slice(0,3).padEnd(3,"0")));
+      return Number.isFinite(ms) ? ms : NaN;
+    }
+    return NaN;
+  }
+
   function timeKey(value) {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return `raw:${String(value || "").trim()}`;
-    return `date:${date.getTime()}`;
+    const ms = timestampMs(value);
+    return Number.isFinite(ms) ? `date:${ms}` : `raw:${String(value || "").trim()}`;
   }
 
   function groupTransactions(transactions = []) {
@@ -43,7 +58,9 @@
           totalQuantity: 0,
           image: "",
           comment: "",
-          originalIndexes: []
+          originalIndexes: [],
+          lastIndex: index,
+          sortTimestamp: timestampMs(item?.timestamp)
         });
       }
       const group = groups.get(key);
@@ -51,6 +68,8 @@
       const quantity = Number(item?.quantity) || 0;
       group.items.push(item);
       group.originalIndexes.push(index);
+      group.lastIndex = index;
+      if (!Number.isFinite(group.sortTimestamp)) group.sortTimestamp = timestampMs(item?.timestamp);
       group.totalLines += 1;
       group.totalQuantity += quantity;
       if (!group.image && item?.image) group.image = item.image;
@@ -64,13 +83,14 @@
     });
 
     return [...groups.values()].sort((a, b) => {
-      const da = new Date(a.timestamp).getTime();
-      const db = new Date(b.timestamp).getTime();
+      const da = a.sortTimestamp;
+      const db = b.sortTimestamp;
       if (Number.isFinite(db) && Number.isFinite(da) && db !== da) return db - da;
       if (Number.isFinite(db) !== Number.isFinite(da)) return Number.isFinite(db) ? -1 : 1;
-      return a.client.localeCompare(b.client);
+      return (b.lastIndex || 0) - (a.lastIndex || 0);
     });
   }
+
 
   function movementSections(group, options = {}) {
     const includeEmpty = Boolean(options.includeEmpty);

@@ -239,7 +239,7 @@
   }
   function renderInvestigation(){
     const client=$("investigate-client")?.value||"", asset=$("investigate-asset")?.value||"", date=$("investigate-date")?.value||"", movement=$("investigate-movement")?.value||"";
-    const rows=state.transactions.filter(t=>(!client||sameText(t.client,client))&&(!asset||sameText(t.asset,asset))&&(!date||dateKey(t.timestamp)===date)&&(!movement||String(t.movement||"").toUpperCase()===movement)).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+    const rows=state.transactions.filter(t=>(!client||sameText(t.client,client))&&(!asset||sameText(t.asset,asset))&&(!date||dateKey(t.timestamp)===date)&&(!movement||String(t.movement||"").toUpperCase()===movement));
     const groups=FM_TRANSACTION_DISPLAY.groupTransactions(rows);
     state.investigationRows=groups;
     $('investigate-count').textContent=`${groups.length.toLocaleString()} grouped movement${groups.length===1?"":"s"}`;
