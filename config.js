@@ -58,6 +58,11 @@ const CONFIG = {
     DRIVE_PHOTOS_PARENT_FOLDER_ID:
         "15NJveQRQ0WHR5FuR0E967dGs5bOBaPoH",
 
+    // Transaction photos referenced by ledger exports are copied here once,
+    // leaving the original daily transaction-photo folders untouched.
+    CLIENT_LEDGER_EXPORT_PHOTOS_FOLDER_NAME:
+        "Client Ledger Export Photos",
+
     /*
      * NOTE: broadened from "drive.readonly" to full "drive" so the app can
      * create the daily date-folders and upload photos into them. Existing
