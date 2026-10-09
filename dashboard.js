@@ -3247,23 +3247,20 @@ function bindQuickMenu() {
         const assets = [...new Set([...(data.assets || []).map(item=>item.asset), ...[...daily.values()].map(row=>row.asset)])].sort((a,b)=>a.localeCompare(b));
         const dates = [];
         for (let time = Date.parse(`${weekRange.from}T00:00:00Z`); time <= Date.parse(`${weekRange.to}T00:00:00Z`); time += 86400000) dates.push(new Date(time).toISOString().slice(0,10));
-        const dailyBody = [];
-        for (const date of dates) {
-            const dayRows = assets.map(asset => daily.get(`${date}\u0000${asset}`) || {date,asset,sent:0,received:0,net:0});
-            const hasMovement = dayRows.some(row=>row.sent || row.received);
-            if (!hasMovement) {
-                dailyBody.push([date,"No movements","0","0","0"]);
-                continue;
-            }
-            const activeRows = dayRows.filter(row => row.sent || row.received);
-            activeRows.forEach((row,index)=>{
-                const dateCell = index === 0 && activeRows.length > 1
-                    ? {content:date,rowSpan:activeRows.length,styles:{valign:"middle"}}
-                    : (index === 0 ? date : null);
-                const cells = [row.asset, formatNumber(row.sent), formatNumber(row.received), formatNumber(row.net)];
-                dailyBody.push(index === 0 ? [dateCell, ...cells] : cells);
-            });
-        }
+
+        // Keep the weekly daily-summary table truly daily: exactly one row for each day,
+        // with that day's per-asset figures listed compactly inside the Sent/Received/Net cells.
+        const dailyBody = dates.map(date => {
+            const dayRows = assets
+                .map(asset => daily.get(`${date}\u0000${asset}`) || {date,asset,sent:0,received:0,net:0})
+                .filter(row => row.sent || row.received);
+            if (!dayRows.length) return [date, "No movements", "—", "—"];
+            const sent = dayRows.filter(row=>row.sent).map(row=>`${row.asset}: ${formatNumber(row.sent)}`).join("\n");
+            const received = dayRows.filter(row=>row.received).map(row=>`${row.asset}: ${formatNumber(row.received)}`).join("\n");
+            const net = dayRows.filter(row=>row.net).map(row=>`${row.asset}: ${row.net > 0 ? "+" : "−"}${formatNumber(Math.abs(row.net))}`).join("\n");
+            return [date, sent || "—", received || "—", net || "—"];
+        });
+
         const weeklyByAsset = new Map(assets.map(asset=>[asset,{asset,sent:0,received:0,net:0}]));
         for (const row of daily.values()) {
             if (row.date < weekRange.from || row.date > weekRange.to) continue;
@@ -3271,18 +3268,28 @@ function bindQuickMenu() {
             if (!target) continue;
             target.sent += row.sent; target.received += row.received; target.net += row.net;
         }
-        const weeklyBody = [...weeklyByAsset.values()].filter(row=>row.sent || row.received).map(row=>[row.asset,formatNumber(row.sent),formatNumber(row.received),formatNumber(row.net)]);
+        const weeklyBody = [...weeklyByAsset.values()]
+            .filter(row=>row.sent || row.received)
+            .map(row=>[row.asset,formatNumber(row.sent),formatNumber(row.received),`${row.net > 0 ? "+" : row.net < 0 ? "−" : ""}${formatNumber(Math.abs(row.net))}`]);
         const summaryRows = [
             ["Period",`${weekRange.from} to ${weekRange.to}`],
-            ["Report format","Daily totals only; individual transactions are not included."],
-            ["Transaction timestamps",String(ledgerTimestampGroups(data.transactions).length)]
+            ["Report format","One row per day with asset breakdowns; individual transactions are not included."]
         ];
         doc.setFontSize(17); doc.setFont(undefined,"bold"); doc.text(`${client} — Weekly Movement Report`,margin,15);
         doc.setFontSize(9); doc.setFont(undefined,"normal"); doc.text(`Week ${weekRange.value} · ${weekRange.from} to ${weekRange.to}`,margin,22);
-        doc.autoTable({startY:26,head:[["Report detail","Value"]],body:summaryRows,theme:"grid",styles:{fontSize:8,cellPadding:1.8},headStyles:{fillColor:[33,27,50],textColor:255},columnStyles:{0:{cellWidth:42},1:{cellWidth:115}}});
+        doc.autoTable({startY:26,head:[["Report detail","Value"]],body:summaryRows,theme:"grid",styles:{fontSize:8,cellPadding:1.8},headStyles:{fillColor:[33,27,50],textColor:255},columnStyles:{0:{cellWidth:42},1:{cellWidth:150}}});
         let y = doc.lastAutoTable.finalY + 6;
-        doc.setFontSize(11); doc.setFont(undefined,"bold"); doc.text("Daily totals by asset",margin,y);
-        doc.autoTable({startY:y+2,head:[["Date","Asset type","Quantity sent","Quantity received","Net movement"]],body:dailyBody.length?dailyBody:[["—","No transactions","0","0","0"]],theme:"grid",styles:{fontSize:7.5,cellPadding:1.5,overflow:"linebreak",valign:"middle"},headStyles:{fillColor:[33,27,50],textColor:255},columnStyles:{0:{cellWidth:27},1:{cellWidth:82},2:{cellWidth:35,halign:"right"},3:{cellWidth:38,halign:"right"},4:{cellWidth:35,halign:"right"}}});
+        doc.setFontSize(11); doc.setFont(undefined,"bold"); doc.text("Daily totals — one row per day",margin,y);
+        doc.autoTable({
+            startY:y+2,
+            head:[["Date","Quantity sent by asset","Quantity received by asset","Net movement by asset"]],
+            body:dailyBody.length?dailyBody:[["—","No transactions","—","—"]],
+            theme:"grid",
+            styles:{fontSize:7.2,cellPadding:1.8,overflow:"linebreak",valign:"middle",minCellHeight:8},
+            headStyles:{fillColor:[33,27,50],textColor:255},
+            columnStyles:{0:{cellWidth:30},1:{cellWidth:75},2:{cellWidth:75},3:{cellWidth:75}},
+            rowPageBreak:"avoid"
+        });
         y = doc.lastAutoTable.finalY + 8;
         if (y > 175) { doc.addPage(); y = 16; }
         doc.setFontSize(11); doc.setFont(undefined,"bold"); doc.text("Totals for the week",margin,y);
