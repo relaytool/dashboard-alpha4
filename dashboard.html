@@ -9,7 +9,7 @@
 
     <title>FM Assets Dashboard</title>
 
-    <link rel="stylesheet" href="dashboard.css?v=eod-ledger-20261003-merged">
+    <link rel="stylesheet" href="dashboard.css?v=client-ledger-export-20261009-v2">
 <link rel="stylesheet" href="transaction-display.css?v=grouped-movements-20261005">
     <link rel="stylesheet" href="app-ui-polish.css?v=ui-20261005-mobile-v5">
 </head>
@@ -654,7 +654,7 @@
             <div>
                 <div class="eyebrow">CLIENT TOTALS</div>
                 <h2 id="client-ledger-export-title">Export client ledger</h2>
-                <p class="muted">Builds a proper XLSX ledger with transaction photos, daily totals and the all-time client balance carried forward to each date.</p>
+                <p class="muted">Export a clean client ledger to PDF, Excel, or a new Google Sheet. Date-difference columns are omitted; the all-time balance and dated Sent / Received summaries are clearly labelled.</p>
             </div>
             <button type="button" id="close-client-ledger-export" class="icon-button" aria-label="Close">×</button>
         </div>
@@ -674,7 +674,9 @@
         </div>
         <div class="client-ledger-export-actions">
             <button type="button" class="secondary" id="cancel-client-ledger-export">Cancel</button>
-            <button type="button" class="primary" id="run-client-ledger-export">Export XLSX</button>
+            <button type="button" class="secondary" id="run-client-ledger-pdf">Export PDF</button>
+            <button type="button" class="secondary" id="run-client-ledger-export">Export XLSX</button>
+            <button type="button" class="primary" id="run-client-ledger-sheets">Export to Google Sheets</button>
         </div>
     </div>
 </div>
@@ -879,7 +881,7 @@
 <script src="movement-batch.js?v=multi-client-20261005"></script>
 <script src="transaction-display-utils.js?v=shared-20261005-v4"></script>
 <script src="routine-alert-utils.js?v=eod-ledger-20261003-merged"></script>
-<script src="dashboard.js?v=single-inventory-audit-20261007-v1"></script>
+<script src="dashboard.js?v=client-ledger-export-20261009-v2"></script>
 
 </body>
 </html>

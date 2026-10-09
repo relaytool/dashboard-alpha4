@@ -3591,3 +3591,9 @@ td{border-top-color:#e7ebf0!important;color:#273244!important}
   .quick-nav.menu-open .menu-links{display:grid}
   .quick-nav .menu-links a{min-height:42px;display:flex;align-items:center;justify-content:center;padding:8px 9px;text-align:center;border-radius:9px;font-size:11px;line-height:1.2}
 }
+
+/* Client ledger exports: support four actions without clipping on mobile. */
+.client-ledger-export-actions{flex-wrap:wrap}
+.client-ledger-export-actions button{flex:1 1 auto;white-space:normal}
+.client-ledger-export-result-link{display:inline-block;margin-left:6px;color:#b794f4;font-weight:800;text-decoration:underline}
+@media(max-width:640px){.client-ledger-export-actions{display:grid;grid-template-columns:1fr 1fr}.client-ledger-export-actions #run-client-ledger-sheets{grid-column:1/-1}}

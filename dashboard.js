@@ -214,6 +214,8 @@ document.addEventListener(
         $("close-client-ledger-export")?.addEventListener("click", closeClientLedgerExport);
         $("cancel-client-ledger-export")?.addEventListener("click", closeClientLedgerExport);
         $("run-client-ledger-export")?.addEventListener("click", runClientLedgerExport);
+        $("run-client-ledger-pdf")?.addEventListener("click", runClientLedgerPdfExport);
+        $("run-client-ledger-sheets")?.addEventListener("click", runClientLedgerSheetsExport);
         $("clear-client-details-filters")?.addEventListener("click", () => {
             const client = $("client-details-title")?.textContent || "";
             if ($("client-details-filter-date")) $("client-details-filter-date").value = "";
@@ -2302,6 +2304,10 @@ function bindQuickMenu() {
             d.allTimeDifference = row.allTimeDifference;
         }
         const dailyRows = [...daily.values()].sort((a,b) => a.date.localeCompare(b.date) || a.asset.localeCompare(b.asset));
+        const allTimeRows = [...cumulative.entries()]
+            .filter(([asset]) => !assetFilter || asset === assetFilter)
+            .map(([asset, balance]) => ({asset, balance}))
+            .sort((a,b) => a.asset.localeCompare(b.asset));
         const periodTotals = inPeriod.reduce((acc, row) => {
             const qty = Number(row.item.quantity) || 0, direction = clientLedgerDirection(row.item.movement);
             if (direction === "Sent") acc.sent += qty;
@@ -2312,7 +2318,7 @@ function bindQuickMenu() {
             return acc;
         }, {sent:0,received:0,discarded:0,transactions:0,photos:0});
         periodTotals.difference = periodTotals.sent - periodTotals.received;
-        return {transactions:inPeriod, dailyRows, periodTotals};
+        return {transactions:inPeriod, dailyRows, allTimeRows, periodTotals};
     }
 
     function styleWorksheetHeader(row) {
@@ -2364,8 +2370,7 @@ function bindQuickMenu() {
         wb.created = new Date();
         wb.modified = new Date();
 
-        // Match the provided ledger template: one row per asset, with transaction-level
-        // fields merged when several asset rows belong to the same timestamp.
+        // The client ledger intentionally omits both date-difference columns.
         const ledger = wb.addWorksheet("Client Ledger", {views:[{state:"frozen",ySplit:1,showGridLines:false}]});
         ledger.columns = [
             {header:"Client",key:"client",width:20},
@@ -2374,11 +2379,9 @@ function bindQuickMenu() {
             {header:"Asset type",key:"asset",width:22},
             {header:"Quantity sent",key:"sent",width:15},
             {header:"Quantity received",key:"received",width:19},
-            {header:"Difference for date",key:"difference",width:18},
-            {header:"All-time difference",key:"allTimeDifference",width:19},
             {header:"Comment",key:"comment",width:34},
-            {header:"Picture",key:"picture",width:16},
-            {header:"Picture link",key:"pictureLink",width:16}
+            {header:"Picture",key:"picture",width:17},
+            {header:"Picture link",key:"pictureLink",width:18}
         ];
         styleWorksheetHeader(ledger.getRow(1));
 
@@ -2387,7 +2390,6 @@ function bindQuickMenu() {
         for (const row of data.transactions) {
             const direction = clientLedgerDirection(row.item.movement);
             const qty = Number(row.item.quantity) || 0;
-            const daily = data.dailyRows.find(d => d.date === row.date && d.asset === row.asset);
             const excelRow = ledger.addRow([
                 client,
                 row.date,
@@ -2395,17 +2397,14 @@ function bindQuickMenu() {
                 row.asset,
                 direction === "Sent" ? qty : 0,
                 direction === "Received" ? qty : 0,
-                daily?.difference || 0,
-                row.allTimeDifference,
                 String(row.item.comment || ""),
                 "",
                 ""
             ]);
             excelRow.alignment = {vertical:"middle", wrapText:true};
             excelRow.height = 64;
-            for (let c = 1; c <= 11; c++) applyLedgerCellBorders(excelRow.getCell(c));
+            for (let c = 1; c <= 9; c++) applyLedgerCellBorders(excelRow.getCell(c));
             [5,6].forEach(c => excelRow.getCell(c).numFmt="#,##0");
-            [7,8].forEach(c => excelRow.getCell(c).numFmt="+#,##0;-#,##0;0");
 
             const timestampKey = `${row.date}\u0000${row.time}`;
             if (!currentGroup || currentGroup.key !== timestampKey) {
@@ -2417,30 +2416,26 @@ function bindQuickMenu() {
             }
         }
 
-        // Client is a single logical block in the exported ledger.
         if (data.transactions.length > 1) mergeLedgerGroup(ledger, 2, 1 + data.transactions.length, ["A"]);
 
-        // Same timestamp = one transaction. Merge only fields that describe that
-        // transaction as a whole, leaving asset-level quantities/differences separate.
         for (const group of transactionGroups) {
             const firstRow = group.startRow;
             const lastRow = group.endRow;
-            const firstItem = group.rows[0]?.item;
-            const photoItem = group.rows.find(candidate => candidate?.item?.image)?.item || firstItem;
+            const photoItem = group.rows.find(candidate => candidate?.item?.image)?.item || group.rows[0]?.item;
             mergeLedgerGroup(ledger, firstRow, lastRow, ["B","C"]);
 
             if (photoItem?.image) {
-                mergeLedgerGroup(ledger, firstRow, lastRow, ["J","K"]);
-                const linkCell = ledger.getCell(`K${firstRow}`);
+                mergeLedgerGroup(ledger, firstRow, lastRow, ["H","I"]);
+                const linkCell = ledger.getCell(`I${firstRow}`);
                 linkCell.value = {text:"Open photo", hyperlink:photoItem.image};
                 linkCell.font = {color:{argb:"FFB794F4"},underline:true};
                 linkCell.alignment = {vertical:"middle",horizontal:"center",wrapText:true};
-                await addLedgerPhoto(wb, ledger, firstRow, 10, photoItem, includePhotos);
+                await addLedgerPhoto(wb, ledger, firstRow, 8, photoItem, includePhotos);
             } else {
-                ledger.getCell(`J${firstRow}`).value = "";
-                ledger.getCell(`K${firstRow}`).value = "";
-                ledger.getCell(`J${firstRow}`).alignment = {vertical:"middle",horizontal:"center"};
-                ledger.getCell(`K${firstRow}`).alignment = {vertical:"middle",horizontal:"center"};
+                ledger.getCell(`H${firstRow}`).value = "";
+                ledger.getCell(`I${firstRow}`).value = "";
+                ledger.getCell(`H${firstRow}`).alignment = {vertical:"middle",horizontal:"center"};
+                ledger.getCell(`I${firstRow}`).alignment = {vertical:"middle",horizontal:"center"};
             }
         }
 
@@ -2448,33 +2443,62 @@ function bindQuickMenu() {
         total.getCell(1).value = `PERIOD TOTALS — ${periodLabel}`;
         total.getCell(5).value = data.periodTotals.sent;
         total.getCell(6).value = data.periodTotals.received;
-        total.getCell(7).value = data.periodTotals.difference;
         styleWorksheetTotals(total);
-        for (let c = 1; c <= 11; c++) applyLedgerCellBorders(total.getCell(c), "FF3A3152");
+        for (let c = 1; c <= 9; c++) applyLedgerCellBorders(total.getCell(c), "FF3A3152");
         [5,6].forEach(c => total.getCell(c).numFmt="#,##0");
-        total.getCell(7).numFmt="+#,##0;-#,##0;0";
-        ledger.autoFilter = {from:"A1",to:`K${Math.max(1,total.number-1)}`};
+        ledger.autoFilter = {from:"A1",to:`I${Math.max(1,total.number-1)}`};
         ledger.pageSetup = {orientation:"landscape",fitToPage:true,fitToWidth:1,fitToHeight:0};
 
         const daily = wb.addWorksheet("Daily Summary", {views:[{state:"frozen",ySplit:1,showGridLines:false}]});
         daily.columns = [
             {header:"Client",key:"client",width:20},{header:"Date",key:"date",width:13},{header:"Asset type",key:"asset",width:22},
-            {header:"Quantity sent",key:"sent",width:16},{header:"Quantity received",key:"received",width:19},{header:"Difference",key:"difference",width:15},
-            {header:"All-time difference at date",key:"allTime",width:24},{header:"Transactions",key:"transactions",width:14},{header:"Pictures",key:"photos",width:12}
+            {header:"Quantity sent",key:"sent",width:16},{header:"Quantity received",key:"received",width:19},
+            {header:"Transactions",key:"transactions",width:14},{header:"Pictures",key:"photos",width:12}
         ];
         styleWorksheetHeader(daily.getRow(1));
-        data.dailyRows.forEach(item => daily.addRow([client,item.date,item.asset,item.sent,item.received,item.difference,item.allTimeDifference,item.transactions,item.photoCount]));
+        data.dailyRows.forEach(item => daily.addRow([client,item.date,item.asset,item.sent,item.received,item.transactions,item.photoCount]));
         const dt = daily.addRow([]);
         dt.getCell(1).value = `PERIOD TOTALS — ${periodLabel}`;
         dt.getCell(4).value = data.periodTotals.sent;
         dt.getCell(5).value = data.periodTotals.received;
-        dt.getCell(6).value = data.periodTotals.difference;
-        dt.getCell(8).value = data.periodTotals.transactions;
-        dt.getCell(9).value = data.periodTotals.photos;
+        dt.getCell(6).value = data.periodTotals.transactions;
+        dt.getCell(7).value = data.periodTotals.photos;
         styleWorksheetTotals(dt);
-        [4,5,8,9].forEach(c => dt.getCell(c).numFmt="#,##0");
-        dt.getCell(6).numFmt="+#,##0;-#,##0;0";
-        daily.autoFilter = {from:"A1",to:`I${Math.max(1,dt.number-1)}`};
+        [4,5,6,7].forEach(c => dt.getCell(c).numFmt="#,##0");
+        daily.autoFilter = {from:"A1",to:`G${Math.max(1,dt.number-1)}`};
+
+        const balance = wb.addWorksheet("All-time Balance", {views:[{state:"frozen",ySplit:1,showGridLines:false}]});
+        balance.columns = [
+            {header:"Client",key:"client",width:22},
+            {header:"Asset type",key:"asset",width:26},
+            {header:"All-time balance (Sent - Received)",key:"balance",width:34}
+        ];
+        styleWorksheetHeader(balance.getRow(1));
+        data.allTimeRows.forEach(item => {
+            const row = balance.addRow([client,item.asset,item.balance]);
+            row.getCell(3).numFmt = "+#,##0;-#,##0;0";
+            row.eachCell(cell => applyLedgerCellBorders(cell));
+        });
+        balance.autoFilter = {from:"A1",to:`C${Math.max(1,balance.rowCount)}`};
+
+        const movements = wb.addWorksheet("Sent and Received", {views:[{state:"frozen",ySplit:1,showGridLines:false}]});
+        movements.columns = [
+            {header:"Date",key:"date",width:15},{header:"Direction",key:"direction",width:16},
+            {header:"Asset type",key:"asset",width:26},{header:"Quantity",key:"quantity",width:14},
+            {header:"Transaction time",key:"time",width:16},{header:"Picture link",key:"picture",width:22}
+        ];
+        styleWorksheetHeader(movements.getRow(1));
+        data.transactions.forEach(item => {
+            const direction = clientLedgerDirection(item.item.movement);
+            const row = movements.addRow([item.date,direction,item.asset,Number(item.item.quantity)||0,item.time,item.item.image||""]);
+            if (item.item.image) {
+                row.getCell(6).value = {text:"Open photo",hyperlink:item.item.image};
+                row.getCell(6).font = {color:{argb:"FFB794F4"},underline:true};
+            }
+            row.getCell(4).numFmt = "#,##0";
+            row.eachCell(cell => applyLedgerCellBorders(cell));
+        });
+        movements.autoFilter = {from:"A1",to:`F${Math.max(1,movements.rowCount)}`};
 
         const notes = wb.addWorksheet("Ledger Notes", {views:[{showGridLines:false}]});
         notes.columns = [{header:"Field",key:"field",width:30},{header:"Meaning",key:"meaning",width:100}];
@@ -2482,29 +2506,256 @@ function bindQuickMenu() {
         notes.addRows([
             ["Client",client],
             ["Period",periodLabel],
-            ["Date difference","Sent minus received for the client + asset type on that date."],
-            ["All-time difference","Cumulative sent minus received for the client + asset type through that transaction date, including history before the selected export period."],
-            ["Merged transaction cells","Client spans the full exported client block. Date, time, picture and picture link are merged across asset rows that share the exact same transaction timestamp."],
-            ["Picture","Embedded in Client Ledger when enabled and available; Picture link remains as the Drive/source link."],
-            ["Period totals","Totals at the bottom are totals for the selected generated period, not a sum of repeated all-time balances."]
+            ["All-time balance","Cumulative sent minus received for each asset type across the client's full available history."],
+            ["Transaction photos","Embedded in Client Ledger when enabled and available. A clickable source link is included when a Drive photo exists."],
+            ["Daily Summary","Sent and received quantities, grouped by date and asset type, for the selected export period."],
+            ["Sent and Received","Individual movement rows with transaction date, direction, asset, quantity, time and Drive photo link."]
         ]);
         notes.eachRow((row,i) => { if (i > 1) row.alignment = {vertical:"top",wrapText:true}; });
         return wb;
     }
 
+    function clientLedgerExportContext() {
+        const client = $("client-details-title")?.textContent?.trim() || "Unknown client";
+        const fromKey = $("client-ledger-export-from")?.value || "";
+        const toKey = $("client-ledger-export-to")?.value || "";
+        const assetFilter = $("client-ledger-export-asset")?.value || "";
+        const includePhotos = Boolean($("client-ledger-export-photos")?.checked);
+        if (fromKey && toKey && fromKey > toKey) throw new Error("From date must be on or before To date.");
+        const data = makeClientLedgerData(client, getDashboardTransactions(), fromKey, toKey, assetFilter);
+        if (!data.transactions.length) throw new Error("No client transactions match that period/filter.");
+        const periodLabel = fromKey || toKey ? `${fromKey || "start"} → ${toKey || "today"}` : "All available history";
+        return {client,fromKey,toKey,assetFilter,includePhotos,data,periodLabel};
+    }
+
+    function safeClientFilePart(client) {
+        return String(client || "client").replace(/[^a-z0-9]+/gi,"-").replace(/^-+|-+$/g,"").toLowerCase() || "client";
+    }
+
     async function runClientLedgerExport() {
-        const client=$("client-details-title")?.textContent?.trim()||"Unknown client", fromKey=$("client-ledger-export-from")?.value||"", toKey=$("client-ledger-export-to")?.value||"", assetFilter=$("client-ledger-export-asset")?.value||"", includePhotos=Boolean($("client-ledger-export-photos")?.checked), status=$("client-ledger-export-status"), button=$("run-client-ledger-export");
-        if(fromKey&&toKey&&fromKey>toKey){if(status){status.textContent="From date must be on or before To date.";status.classList.add("error");}return;}
-        const data=makeClientLedgerData(client,getDashboardTransactions(),fromKey,toKey,assetFilter);
-        if(!data.transactions.length){if(status){status.textContent="No client transactions match that period/filter.";status.classList.add("error");}return;}
-        const periodLabel=fromKey||toKey?`${fromKey||"start"} → ${toKey||"today"}`:"All available history";
-        try{
-            if(button){button.disabled=true;button.textContent="Building XLSX…";} if(status){status.textContent="Preparing the ledger and embedding available photos…";status.classList.remove("error");}
-            const wb=await buildClientLedgerWorkbook(client,data,periodLabel,includePhotos), buffer=await wb.xlsx.writeBuffer(), blob=new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}), url=URL.createObjectURL(blob), safeClient=client.replace(/[^a-z0-9]+/gi,"-").replace(/^-+|-+$/g,"").toLowerCase()||"client", datePart=toKey||fromKey||transactionDateKey(new Date());
-            const a=document.createElement("a");a.href=url;a.download=`${safeClient}-client-ledger-${datePart}.xlsx`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
-            if(status)status.textContent=`Exported ${data.transactions.length} transaction${data.transactions.length===1?"":"s"} across ${data.dailyRows.length} daily asset line${data.dailyRows.length===1?"":"s"}.`;
+        const status = $("client-ledger-export-status"), button = $("run-client-ledger-export");
+        try {
+            const {client,toKey,fromKey,includePhotos,data,periodLabel} = clientLedgerExportContext();
+            if(button){button.disabled=true;button.textContent="Building XLSX…";}
+            if(status){status.textContent="Preparing the ledger and embedding available photos…";status.classList.remove("error");status.replaceChildren();}
+            const wb = await buildClientLedgerWorkbook(client,data,periodLabel,includePhotos);
+            const buffer = await wb.xlsx.writeBuffer();
+            const blob = new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+            const url = URL.createObjectURL(blob);
+            const datePart = toKey || fromKey || transactionDateKey(new Date());
+            const a = document.createElement("a");
+            a.href=url;a.download=`${safeClientFilePart(client)}-client-ledger-${datePart}.xlsx`;
+            document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+            if(status)status.textContent=`Exported ${data.transactions.length} transaction${data.transactions.length===1?"":"s"}, including available photo attachments.`;
             if(button){button.disabled=false;button.textContent="Export XLSX";}
-        }catch(error){console.error("Client ledger export failed:",error);if(status){status.textContent=error?.message||"The spreadsheet could not be generated.";status.classList.add("error");}if(button){button.disabled=false;button.textContent="Try export again";}}
+        } catch(error) {
+            console.error("Client ledger XLSX export failed:",error);
+            if(status){status.textContent=error?.message||"The spreadsheet could not be generated.";status.classList.add("error");}
+            if(button){button.disabled=false;button.textContent="Export XLSX";}
+        }
+    }
+
+    const CLIENT_LEDGER_JSPDF_SRC = "https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js";
+    const CLIENT_LEDGER_AUTOTABLE_SRC = "https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js";
+    let jsPdfLoadPromise = null;
+    function loadScriptOnce(src, dataKey) {
+        return new Promise((resolve,reject) => {
+            const existing = document.querySelector(`script[data-${dataKey}]`);
+            if (existing) {
+                if (existing.dataset.loaded === "true") return resolve();
+                existing.addEventListener("load",resolve,{once:true});
+                existing.addEventListener("error",()=>reject(new Error("PDF export library failed to load.")),{once:true});
+                return;
+            }
+            const script = document.createElement("script");
+            script.src=src;script.async=true;script.dataset[dataKey.replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]="1";
+            script.dataset.loaded="false";
+            script.onload=()=>{script.dataset.loaded="true";resolve();};
+            script.onerror=()=>reject(new Error("PDF export library failed to load. Check the internet connection and retry."));
+            document.head.appendChild(script);
+        });
+    }
+    async function ensureJsPDF() {
+        if (window.jspdf?.jsPDF && window.jspdf.jsPDF.API?.autoTable) return window.jspdf.jsPDF;
+        if (!jsPdfLoadPromise) jsPdfLoadPromise = (async()=>{
+            await loadScriptOnce(CLIENT_LEDGER_JSPDF_SRC,"client-ledger-jspdf");
+            await loadScriptOnce(CLIENT_LEDGER_AUTOTABLE_SRC,"client-ledger-autotable");
+            const JsPDF = window.jspdf?.jsPDF;
+            if (!JsPDF) throw new Error("PDF export library loaded without exposing jsPDF.");
+            if (!JsPDF.API?.autoTable && window.jspdfAutoTable) window.jspdfAutoTable(JsPDF);
+            if (!JsPDF.API?.autoTable) throw new Error("PDF table plugin could not be initialised.");
+            return JsPDF;
+        })().catch(error=>{jsPdfLoadPromise=null;throw error;});
+        return jsPdfLoadPromise;
+    }
+
+    async function runClientLedgerPdfExport() {
+        const status=$("client-ledger-export-status"), button=$("run-client-ledger-pdf");
+        try {
+            const {client,fromKey,toKey,includePhotos,data,periodLabel}=clientLedgerExportContext();
+            if(button){button.disabled=true;button.textContent="Building PDF…";}
+            if(status){status.textContent="Building a labelled PDF and loading available Drive photos…";status.classList.remove("error");status.replaceChildren();}
+            const JsPDF=await ensureJsPDF();
+            const doc=new JsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+            const safe= safeClientFilePart(client);
+            const imageCache=new Map();
+            if(includePhotos){
+                const urls=[...new Set(data.transactions.map(row=>String(row.item.image||"").trim()).filter(Boolean))];
+                await Promise.all(urls.map(async url=>{
+                    try { const loaded=await FM_MEDIA?.loadImageDataUrl?.(url,state.accessToken); if(loaded?.dataUrl) imageCache.set(url,loaded); }
+                    catch(error){console.warn("PDF ledger photo could not be loaded:",error);}
+                }));
+            }
+            const title=`${client} Client Ledger`;
+            doc.setFont("helvetica","bold");doc.setFontSize(17);doc.text(title,14,14);
+            doc.setFont("helvetica","normal");doc.setFontSize(9);doc.text(`Period: ${periodLabel}`,14,20);
+            doc.text(`Generated: ${new Date().toLocaleString("en-GB")}`,14,25);
+            doc.setFont("helvetica","bold");doc.setFontSize(11);doc.text("All-time balance with client (Sent - Received)",14,32);
+            doc.autoTable({
+                startY:35,head:[["Client","Asset type","All-time balance (Sent - Received)"]],
+                body:data.allTimeRows.map(row=>[client,row.asset,Number(row.balance)||0]),
+                theme:"grid",styles:{font:"helvetica",fontSize:8,cellPadding:2},
+                headStyles:{fillColor:[43,35,63],textColor:255},
+                columnStyles:{0:{cellWidth:45},1:{cellWidth:60},2:{cellWidth:58}},
+                didParseCell:info=>{if(info.section==="body"&&info.column.index===2)info.cell.text=[Number(info.cell.raw||0).toLocaleString("en-GB",{signDisplay:"exceptZero"})];}
+            });
+            let nextY=(doc.lastAutoTable?.finalY||45)+7;
+            if(nextY>175){doc.addPage();nextY=14;}
+            doc.setFont("helvetica","bold");doc.setFontSize(11);doc.text("Transaction ledger",14,nextY);
+            const txRows=data.transactions.map(row=>{
+                const direction=clientLedgerDirection(row.item.movement),qty=Number(row.item.quantity)||0;
+                const image=imageCache.get(String(row.item.image||""));
+                return [client,row.date,row.time,row.asset,direction==="Sent"?qty:"-",direction==="Received"?qty:"-",String(row.item.comment||""),image?"Photo attached":(row.item.image?"Open in Drive":"-")];
+            });
+            doc.autoTable({
+                startY:nextY+3,
+                head:[["Client","Date","Time","Asset type","Qty sent","Qty received","Comment","Photo"]],
+                body:txRows,theme:"grid",
+                styles:{font:"helvetica",fontSize:7.2,cellPadding:1.6,overflow:"linebreak",minCellHeight:15},
+                headStyles:{fillColor:[43,35,63],textColor:255},
+                columnStyles:{0:{cellWidth:25},1:{cellWidth:22},2:{cellWidth:17},3:{cellWidth:34},4:{cellWidth:18},5:{cellWidth:21},6:{cellWidth:88},7:{cellWidth:24}},
+                didDrawCell:info=>{
+                    if(info.section!=="body"||info.column.index!==7)return;
+                    const row=data.transactions[info.row.index];
+                    const image=imageCache.get(String(row?.item?.image||""));
+                    const photoUrl=String(row?.item?.image||"");
+                    if(photoUrl){try{doc.link({url:photoUrl,x:info.cell.x,y:info.cell.y,w:info.cell.width,h:info.cell.height});}catch(_){}}
+                    if(!image?.dataUrl)return;
+                    try { doc.addImage(image.dataUrl,String(image.extension||"jpeg").toUpperCase(),info.cell.x+1,info.cell.y+1,Math.max(3,info.cell.width-2),Math.max(3,info.cell.height-2)); }
+                    catch(error){console.warn("PDF could not place a transaction photo:",error);}
+                }
+            });
+
+            // Clearly label date-specific received and sent summaries instead of leaving generic table headers.
+            const dates=[...new Set(data.dailyRows.map(row=>row.date))].sort();
+            for(const date of dates){
+                const dateRows=data.dailyRows.filter(row=>row.date===date);
+                for(const [direction,label] of [["received","Received on"],["sent","Sent on"]]){
+                    const summaries=dateRows.filter(row=>(Number(row[direction])||0)>0).map(row=>[row.asset,Number(row[direction])]);
+                    if(!summaries.length)continue;
+                    const previousY=doc.lastAutoTable?.finalY||0;
+                    let y;
+                    if(previousY>170){doc.addPage();y=15;}
+                    else y=Math.max(15,(previousY||15)+7);
+                    doc.setFont("helvetica","bold");doc.setFontSize(10);doc.text(`${label} ${date}`,14,y);
+                    doc.autoTable({startY:y+2,head:[["Asset type","Quantity"]],body:summaries,theme:"grid",styles:{font:"helvetica",fontSize:8,cellPadding:2},headStyles:{fillColor:[43,35,63],textColor:255},columnStyles:{0:{cellWidth:55},1:{cellWidth:30}}});
+                }
+            }
+            const pageCount=doc.getNumberOfPages();
+            for(let page=1;page<=pageCount;page++){
+                doc.setPage(page);doc.setFont("helvetica","normal");doc.setFontSize(8);
+                doc.text(`${client} Client Ledger - Page ${page} of ${pageCount}`,doc.internal.pageSize.getWidth()-14,doc.internal.pageSize.getHeight()-6,{align:"right"});
+            }
+            const datePart=toKey||fromKey||transactionDateKey(new Date());
+            doc.save(`${safe}-client-ledger-${datePart}.pdf`);
+            if(status)status.textContent=`Exported PDF with ${data.transactions.length} ledger rows and ${imageCache.size} embedded photo${imageCache.size===1?"":"s"}.`;
+        }catch(error){
+            console.error("Client ledger PDF export failed:",error);
+            if(status){status.textContent=error?.message||"The PDF could not be generated.";status.classList.add("error");}
+        }finally{if(button){button.disabled=false;button.textContent="Export PDF";}}
+    }
+
+    async function runClientLedgerSheetsExport() {
+        const status=$("client-ledger-export-status"),button=$("run-client-ledger-sheets");
+        try {
+            const {client,fromKey,toKey,includePhotos,data,periodLabel}=clientLedgerExportContext();
+            if(!state.accessToken)throw new Error("Google Sheets is not connected. Reconnect and try again.");
+            if(button){button.disabled=true;button.textContent="Creating sheet…";}
+            if(status){status.textContent="Creating a Google Sheet and adding ledger rows and Drive photo links…";status.classList.remove("error");status.replaceChildren();}
+            const datePart=toKey||fromKey||transactionDateKey(new Date());
+            const title=`${client} Client Ledger ${datePart} ${new Date().toISOString().replace(/[:.]/g,"-")}`;
+            const sheetTitles=["Client Ledger","Daily Summary","All-time Balance","Sent and Received"];
+            const createResponse=await sheetsPost("",{
+                properties:{title},
+                sheets:sheetTitles.map((sheetTitle,index)=>({properties:{title:sheetTitle,index,gridProperties:{frozenRowCount:1}}}))
+            });
+            let spreadsheetId=String(createResponse?.spreadsheetId||"").trim();
+            const spreadsheetUrl=String(createResponse?.spreadsheetUrl||"").trim();
+            if(!spreadsheetId&&spreadsheetUrl){const match=spreadsheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);if(match)spreadsheetId=match[1];}
+            // Google normally returns spreadsheetId from the create call. If a proxy/wrapper
+            // drops it after the file was created, look it up in Drive by the unique title.
+            let driveFile=null;
+            if(!spreadsheetId){
+                const escapedTitle=title.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+                const query=`name = '${escapedTitle}' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`;
+                const lookup=await fetchJson(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&orderBy=createdTime%20desc&pageSize=20&fields=${encodeURIComponent("files(id,name,webViewLink,mimeType,createdTime)")}`,{headers:authHeaders()});
+                const files=Array.isArray(lookup?.files)?lookup.files:[];
+                driveFile=files.find(file=>file.name===title)||files[0]||null;
+                spreadsheetId=String(driveFile?.id||"").trim();
+            }
+            if(!spreadsheetId)throw new Error("Google created a report but did not return its spreadsheet ID, and the Drive lookup could not find it. Check Drive access and retry; the report may already exist in Drive.");
+
+            let metadata=createResponse;
+            if(!Array.isArray(metadata?.sheets)||metadata.sheets.some(sheet=>!Number.isFinite(Number(sheet?.properties?.sheetId)))){
+                metadata=await sheetsGet(`/${encodeURIComponent(spreadsheetId)}?includeGridData=false`);
+            }
+            const existingSheets=Array.isArray(metadata?.sheets)?metadata.sheets:[];
+            const byTitle=new Map(existingSheets.map(sheet=>[sheet?.properties?.title,sheet?.properties?.sheetId]));
+            const missingTitles=sheetTitles.filter(sheetTitle=>!byTitle.has(sheetTitle));
+            if(missingTitles.length){
+                await sheetsPost(`/${encodeURIComponent(spreadsheetId)}:batchUpdate`,{requests:missingTitles.map(sheetTitle=>({addSheet:{properties:{title:sheetTitle,gridProperties:{frozenRowCount:1}}}}))});
+                metadata=await sheetsGet(`/${encodeURIComponent(spreadsheetId)}?includeGridData=false`);
+                for(const sheet of metadata?.sheets||[])byTitle.set(sheet?.properties?.title,sheet?.properties?.sheetId);
+            }
+            const photoCell=url=>url?`=HYPERLINK("${String(url).replace(/"/g,'""')}","Open photo")`:"";
+            const txValues=[["Client","Date","Time","Asset type","Quantity sent","Quantity received","Comment","Photo / Drive link"]];
+            for(const row of data.transactions){
+                const direction=clientLedgerDirection(row.item.movement),qty=Number(row.item.quantity)||0;
+                txValues.push([client,row.date,row.time,row.asset,direction==="Sent"?qty:"",direction==="Received"?qty:"",String(row.item.comment||""),photoCell(row.item.image)]);
+            }
+            txValues.push([`PERIOD TOTALS - ${periodLabel}`,"","","",data.periodTotals.sent,data.periodTotals.received,"",""]);
+            const dailyValues=[
+                ["Client","Date","Asset type","Quantity sent","Quantity received","Transactions","Pictures"],
+                ...data.dailyRows.map(row=>[client,row.date,row.asset,row.sent,row.received,row.transactions,row.photoCount]),
+                [`PERIOD TOTALS - ${periodLabel}`,"","",data.periodTotals.sent,data.periodTotals.received,data.periodTotals.transactions,data.periodTotals.photos]
+            ];
+            const balanceValues=[["Client","Asset type","All-time balance (Sent - Received)"],...data.allTimeRows.map(row=>[client,row.asset,row.balance])];
+            const movementValues=[["Date","Direction","Asset type","Quantity","Transaction time","Photo / Drive link"],...data.transactions.map(row=>[row.date,clientLedgerDirection(row.item.movement),row.asset,Number(row.item.quantity)||0,row.time,photoCell(row.item.image)])];
+            const valueSets=[["Client Ledger",txValues],["Daily Summary",dailyValues],["All-time Balance",balanceValues],["Sent and Received",movementValues]];
+            for(const [sheetTitle,values] of valueSets){
+                const range=`${quoteSheetName(sheetTitle)}!A1`;
+                await sheetsPut(`/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,{range,majorDimension:"ROWS",values});
+            }
+            // Apply a consistent header row and usable column widths. No transaction is changed in the source ledger.
+            const formatting=[];
+            for(const sheetTitle of sheetTitles){
+                const sheetId=byTitle.get(sheetTitle);
+                if(!Number.isFinite(Number(sheetId)))continue;
+                formatting.push({repeatCell:{range:{sheetId:Number(sheetId),startRowIndex:0,endRowIndex:1},cell:{userEnteredFormat:{backgroundColor:{red:0.13,green:0.11,blue:0.2},textFormat:{foregroundColor:{red:1,green:1,blue:1},bold:true},wrapStrategy:"WRAP",verticalAlignment:"MIDDLE"}},fields:"userEnteredFormat(backgroundColor,textFormat,wrapStrategy,verticalAlignment)"}});
+                formatting.push({updateSheetProperties:{properties:{sheetId:Number(sheetId),gridProperties:{frozenRowCount:1}},fields:"gridProperties.frozenRowCount"}});
+            }
+            if(formatting.length)await sheetsPost(`/${encodeURIComponent(spreadsheetId)}:batchUpdate`,{requests:formatting});
+            let finalUrl=spreadsheetUrl||driveFile?.webViewLink||`https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
+            if(status){
+                status.classList.remove("error");
+                status.textContent=`Google Sheet created with ${data.transactions.length} transaction rows. `;
+                const link=document.createElement("a");link.href=finalUrl;link.target="_blank";link.rel="noopener noreferrer";link.textContent="Open Google Sheet";link.className="client-ledger-export-result-link";
+                status.appendChild(link);
+            }
+        }catch(error){
+            console.error("Client ledger Google Sheets export failed:",error);
+            if(status){status.textContent=error?.message||"The Google Sheet could not be created.";status.classList.add("error");}
+        }finally{if(button){button.disabled=false;button.textContent="Export to Google Sheets";}}
     }
 
     function toggleTransactionSummary(button) {
